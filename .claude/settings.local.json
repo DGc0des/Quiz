@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm info *)",
+      "Read(//private/tmp/quiz/project/**)"
+    ]
+  }
+}
