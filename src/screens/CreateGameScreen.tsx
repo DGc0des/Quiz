@@ -44,6 +44,7 @@ export default function CreateGameScreen({ route, navigation }: Props) {
               score: 0,
               isHost: true,
               joinedAt: Date.now(),
+              usedHelps: { fifty: false, steal: false, double: false, sabotage: false },
             },
           },
           turnOrder: [],

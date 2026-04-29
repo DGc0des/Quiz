@@ -4,6 +4,8 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
+  Keyboard,
   StyleSheet,
   SafeAreaView,
   KeyboardAvoidingView,
@@ -13,7 +15,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { C, F } from '../theme';
 import { Blobs } from '../components/Blobs';
-import { Mascot } from '../components/Mascot';
+import { Logo } from '../components/Logo';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
@@ -26,14 +28,12 @@ export default function HomeScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.safe}>
       <Blobs />
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <Mascot size={132} mood="happy" />
-
-        <Text style={styles.title}>Κουίζ</Text>
-        <Text style={styles.subtitle}>Το παιχνίδι γνώσεων</Text>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+        <Logo size={120} />
 
         <TextInput
           style={[styles.input, focused && styles.inputFocused]}
@@ -68,12 +68,9 @@ export default function HomeScreen({ navigation }: Props) {
           <Text style={styles.ghostBtnText}>Είσοδος σε Παιχνίδι</Text>
         </TouchableOpacity>
 
-        <View style={styles.dots}>
-          <View style={[styles.dot, styles.dotActive]} />
-          <View style={styles.dot} />
-          <View style={styles.dot} />
-        </View>
-      </KeyboardAvoidingView>
+        
+        </KeyboardAvoidingView>
+      </TouchableWithoutFeedback>
     </SafeAreaView>
   );
 }
@@ -89,19 +86,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 32,
-  },
-  title: {
-    fontFamily: F.extraBold,
-    fontSize: 44,
-    color: C.primary,
-    marginTop: 16,
-  },
-  subtitle: {
-    fontFamily: F.sans,
-    fontSize: 14,
-    color: C.inkSoft,
-    marginBottom: 28,
-    marginTop: 4,
   },
   input: {
     width: '100%',

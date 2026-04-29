@@ -124,7 +124,7 @@ export default function WinnerScreen({ route, navigation }: Props) {
     // Reset all players' scores, keep the original host
     const resetPlayers: Game['players'] = {};
     for (const [id, p] of Object.entries(game.players)) {
-      resetPlayers[id] = { ...p, score: 0, joinedAt: Date.now() };
+      resetPlayers[id] = { ...p, score: 0, joinedAt: Date.now(), usedHelps: { fifty: false, steal: false, double: false, sabotage: false } };
     }
 
     const newGame: Game = {

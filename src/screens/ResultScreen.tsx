@@ -11,12 +11,25 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../config/supabase';
 import { useGame } from '../hooks/useGame';
 import { getQuestionById } from '../data/questions';
-import { RootStackParamList, Player, Game } from '../types';
+import { RootStackParamList, Player, Game, Turn, PlayerAnswer } from '../types';
 import { C, F, SHADOW } from '../theme';
 import { Blobs } from '../components/Blobs';
 import { Avatar } from '../components/Avatar';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Result'>;
+
+function resolveAnswers(turn: Turn): Record<string, PlayerAnswer> {
+  const resolved = { ...turn.answers };
+  for (const [pid, answer] of Object.entries(turn.answers)) {
+    if (answer.stolenFrom) {
+      const target = turn.answers[answer.stolenFrom];
+      if (target) {
+        resolved[pid] = { ...answer, answerIndex: target.answerIndex, isCorrect: target.isCorrect };
+      }
+    }
+  }
+  return resolved;
+}
 
 const WIN_SCORE = 15;
 
@@ -41,10 +54,16 @@ export default function ResultScreen({ route, navigation }: Props) {
 
     const turn = game.currentTurn;
     const points = turn.selectedPoints ?? 1;
+    const resolved = resolveAnswers(turn);
 
     const updatedPlayers: Record<string, Player> = {};
     for (const [id, p] of Object.entries(game.players)) {
-      const earned = turn.answers[id]?.isCorrect ? points : 0;
+      const answer = resolved[id];
+      const isCorrect = answer?.isCorrect ?? false;
+      const hasDouble = turn.activeHelps?.[id]?.double;
+      const hasFifty = turn.activeHelps?.[id]?.fifty;
+      const effectivePoints = hasFifty ? 1 : points;
+      const earned = isCorrect ? (hasDouble ? effectivePoints * 2 : effectivePoints) : 0;
       updatedPlayers[id] = { ...p, score: p.score + earned };
     }
 
@@ -69,6 +88,7 @@ export default function ResultScreen({ route, navigation }: Props) {
             answers: {},
             timerStartedAt: null,
             status: 'picking',
+            activeHelps: {},
           },
     };
     await supabase.from('games').update({ data: updated }).eq('id', gameId);
@@ -79,6 +99,7 @@ export default function ResultScreen({ route, navigation }: Props) {
   const turn = game.currentTurn;
   const question = turn.questionId ? getQuestionById(turn.questionId) : null;
   const points = turn.selectedPoints ?? 1;
+  const resolved = resolveAnswers(turn);
   const sortedPlayers = Object.values(game.players).sort((a, b) => b.score - a.score);
   const turnNumber = turn.turnNumber ?? 1;
 
@@ -109,11 +130,44 @@ export default function ResultScreen({ route, navigation }: Props) {
         <Text style={s.sectionEyebrow}>Αποτελέσματα παικτών</Text>
 
         {sortedPlayers.map((player) => {
-          const answer = turn.answers[player.id];
-          const isCorrect = answer?.isCorrect ?? false;
+          const rawAnswer = turn.answers[player.id];
+          const resolvedAns = resolved[player.id];
+          const isCorrect = resolvedAns?.isCorrect ?? false;
           const isSelf = player.id === playerId;
-          const earned = isCorrect ? points : 0;
-          const noAnswer = answer === undefined;
+          const hasDouble = turn.activeHelps?.[player.id]?.double;
+          const hasFifty = turn.activeHelps?.[player.id]?.fifty;
+          const stolenFrom = rawAnswer?.stolenFrom;
+          const stealTargetName = stolenFrom ? game.players[stolenFrom]?.name : undefined;
+          const effectivePoints = hasFifty ? 1 : points;
+          const earned = isCorrect ? (hasDouble ? effectivePoints * 2 : effectivePoints) : 0;
+          const noAnswer = rawAnswer === undefined;
+
+          let verdictText: string;
+          let verdictStyle: object;
+          if (noAnswer) {
+            verdictText = '— δεν απάντησε';
+            verdictStyle = s.verdictMute;
+          } else if (stolenFrom) {
+            verdictText = isCorrect
+              ? `👊 Έκλεψε από ${stealTargetName} · +${earned} βαθμ.`
+              : `👊 Έκλεψε από ${stealTargetName} · Λάθος`;
+            verdictStyle = isCorrect ? s.verdictCorrect : s.verdictWrong;
+          } else if (hasDouble && hasFifty && isCorrect) {
+            verdictText = `✂️⚡ ×2 Σωστά! +${earned} βαθμ.`;
+            verdictStyle = s.verdictCorrect;
+          } else if (hasDouble && isCorrect) {
+            verdictText = `⚡ ×2 Σωστά! +${earned} βαθμ.`;
+            verdictStyle = s.verdictCorrect;
+          } else if (hasFifty && isCorrect) {
+            verdictText = `✂️ 50/50 Σωστά! +${earned} βαθμ.`;
+            verdictStyle = s.verdictCorrect;
+          } else if (isCorrect) {
+            verdictText = `✓ Σωστά! +${earned} βαθμ.`;
+            verdictStyle = s.verdictCorrect;
+          } else {
+            verdictText = '✗ Λάθος';
+            verdictStyle = s.verdictWrong;
+          }
 
           return (
             <View
@@ -126,22 +180,7 @@ export default function ResultScreen({ route, navigation }: Props) {
                   {player.name}
                   {isSelf ? ' (εσύ)' : ''}
                 </Text>
-                <Text
-                  style={[
-                    s.verdict,
-                    noAnswer
-                      ? s.verdictMute
-                      : isCorrect
-                      ? s.verdictCorrect
-                      : s.verdictWrong,
-                  ]}
-                >
-                  {noAnswer
-                    ? '— δεν απάντησε'
-                    : isCorrect
-                    ? `✓ Σωστά! +${earned} βαθμ.`
-                    : '✗ Λάθος'}
-                </Text>
+                <Text style={[s.verdict, verdictStyle]}>{verdictText}</Text>
               </View>
               <Text style={s.totalScore}>{player.score + earned}</Text>
             </View>

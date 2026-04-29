@@ -31,6 +31,7 @@ export interface Player {
   score: number;
   isHost: boolean;
   joinedAt: number;
+  usedHelps?: { fifty: boolean; steal: boolean; double: boolean; sabotage: boolean };
 }
 
 export interface PlayerAnswer {
@@ -38,6 +39,7 @@ export interface PlayerAnswer {
   answerIndex: number | null;
   isCorrect: boolean;
   answeredAt: number;
+  stolenFrom?: string;
 }
 
 export interface Turn {
@@ -49,6 +51,7 @@ export interface Turn {
   answers: Record<string, PlayerAnswer>;
   timerStartedAt: number | null;
   status: 'picking' | 'question' | 'reviewing';
+  activeHelps?: Record<string, { double?: boolean; sabotage?: string; fifty?: boolean }>;
 }
 
 export interface Game {

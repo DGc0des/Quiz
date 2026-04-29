@@ -76,6 +76,7 @@ export default function JoinGameScreen({ route, navigation }: Props) {
           score: 0,
           isHost: false,
           joinedAt: Date.now(),
+          usedHelps: { fifty: false, steal: false, double: false, sabotage: false },
         },
       });
 
@@ -99,7 +100,7 @@ export default function JoinGameScreen({ route, navigation }: Props) {
           style={{ flex: 1 }}
           barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
           onBarcodeScanned={({ data }) => {
-            const match = data.match(/quizapp:\/\/join\/([A-Z0-9]{6})/);
+            const match = data.match(/quizapp:\/\/join\/([A-Z0-9]{6})$/);
             if (match) {
               setCode(match[1]);
               setScanning(false);
