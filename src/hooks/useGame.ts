@@ -31,17 +31,18 @@ function ensureChannel(gameId: string) {
   channels.set(gameId, channel);
 }
 
-function ensureFetch(gameId: string) {
-  if (fetchPromises.has(gameId)) return fetchPromises.get(gameId)!;
-  const p = supabase
-    .from('games')
-    .select('data')
-    .eq('id', gameId)
-    .single()
-    .then(({ data: row }) => {
-      const fresh = (row?.data as Game) ?? null;
-      if (fresh) notify(gameId, fresh);
-    });
+function ensureFetch(gameId: string): Promise<void> {
+  const existing = fetchPromises.get(gameId);
+  if (existing) return existing;
+  const p = (async () => {
+    const { data: row } = await supabase
+      .from('games')
+      .select('data')
+      .eq('id', gameId)
+      .single();
+    const fresh = (row?.data as Game) ?? null;
+    if (fresh) notify(gameId, fresh);
+  })();
   fetchPromises.set(gameId, p);
   return p;
 }
@@ -70,7 +71,10 @@ export function useGame(gameId: string) {
     subscribers.get(gameId)!.add(cb);
 
     ensureChannel(gameId);
-    ensureFetch(gameId).catch((e) => setError(e?.message ?? 'fetch error'));
+    ensureFetch(gameId).catch((e: unknown) => {
+      const msg = e instanceof Error ? e.message : 'fetch error';
+      setError(msg);
+    });
 
     return () => {
       subscribers.get(gameId)?.delete(cb);
