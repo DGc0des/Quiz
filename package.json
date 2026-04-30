@@ -56,7 +56,6 @@
     "@types/uuid": "^10.0.0",
     "babel-preset-expo": "^55.0.18",
     "jest": "^30.3.0",
-    "jest-expo": "~54.0.17",
     "ts-jest": "^29.4.9",
     "typescript": "~5.9.2"
   },
