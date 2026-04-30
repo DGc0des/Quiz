@@ -377,7 +377,7 @@ export const questions: Question[] = [
   { id: 'sport_n_17', category: 'Αθλητισμός', difficulty: 3, text: 'Ποιο έτος ιδρύθηκε η FIFA;', options: ['1896', '1900', '1904', '1908'], correctIndex: 2 },
   { id: 'sport_n_18', category: 'Αθλητισμός', difficulty: 3, text: 'Ποιος κέρδισε τα περισσότερα Grand Slam Ανδρών στην ιστορία του τένις (2024);', options: ['Rafael Nadal', 'Roger Federer', 'Novak Djokovic', 'Pete Sampras'], correctIndex: 2 },
   { id: 'sport_n_19', category: 'Αθλητισμός', difficulty: 3, text: 'Πόσα χρυσά μετάλλια κέρδισε η Ελλάδα συνολικά στους ΟΑ 2004;', options: ['4', '5', '6', '8'], correctIndex: 2 },
-  { id: 'sport_n_20', category: 'Αθλητισμός', difficulty: 3, text: 'Ποιος είναι ο πρώτος Έλληνας που αγωνίστηκε σε αγώνα Formula 1;', options: ['Νίκος Θεοδόσης', 'Αλέξανδρος Σωτήρης', 'Νίκος Θεοδόσης', 'Νίκος Λαούδας'], correctIndex: 0 },
+  { id: 'sport_n_20', category: 'Αθλητισμός', difficulty: 3, text: 'Ποιος είναι ο πρώτος Έλληνας που αγωνίστηκε σε αγώνα Formula 1;', options: ['Νίκος Θεοδόσης', 'Αλέξανδρος Σωτήρης', 'Δημήτρης Ντελιγιάννης', 'Νίκος Λαούδας'], correctIndex: 0 },
 
   // ── Αθλητισμός (questions_claude_Αθλ batch) ──
   { id: 'sport_cl_01', category: 'Αθλητισμός', difficulty: 1, text: 'Ποια χώρα φιλοξένησε την πρώτη FIFA World Cup (1930);', options: ['Βραζιλία', 'Αργεντινή', 'Ουρουγουάη', 'Χιλή'], correctIndex: 2 },
