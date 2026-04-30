@@ -2,6 +2,7 @@ import 'react-native-get-random-values';
 import { useCallback } from 'react';
 import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import * as SplashScreen from 'expo-splash-screen';
 import {
@@ -43,9 +44,11 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }} onLayout={onLayoutRootView}>
-      <NavigationContainer linking={linking}>
-        <AppNavigator />
-      </NavigationContainer>
+      <SafeAreaProvider>
+        <NavigationContainer linking={linking}>
+          <AppNavigator />
+        </NavigationContainer>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

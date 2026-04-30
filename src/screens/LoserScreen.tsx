@@ -4,10 +4,10 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../config/supabase';
 import { generateGameId } from '../utils/gameId';
@@ -25,6 +25,7 @@ const MEDALS = ['🥇', '🥈', '🥉'];
 export default function LoserScreen({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
   const { game } = useGame(gameId);
+  const insets = useSafeAreaInsets();
   const [creatingRematch, setCreatingRematch] = useState(false);
   const navigatedRef = useRef(false);
 
@@ -72,6 +73,7 @@ export default function LoserScreen({ route, navigation }: Props) {
       createdAt: Date.now(),
       winnerId: null,
       rematchGameId: null,
+      usedQuestionIds: game.usedQuestionIds ?? [],
     };
 
     const { error } = await supabase.from('games').insert({
@@ -91,7 +93,7 @@ export default function LoserScreen({ route, navigation }: Props) {
   };
 
   return (
-    <SafeAreaView style={s.safe}>
+    <View style={[s.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <Blobs />
 
       <ScrollView
@@ -164,7 +166,7 @@ export default function LoserScreen({ route, navigation }: Props) {
           </View>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 

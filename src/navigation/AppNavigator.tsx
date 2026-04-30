@@ -1,6 +1,7 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { LinkingOptions } from '@react-navigation/native';
 import { RootStackParamList } from '../types';
+import { C } from '../theme';
 
 import HomeScreen from '../screens/HomeScreen';
 import CreateGameScreen from '../screens/CreateGameScreen';
@@ -26,7 +27,16 @@ export const linking: LinkingOptions<RootStackParamList> = {
 
 export default function AppNavigator() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: C.bg },
+        animation: 'fade',
+        animationDuration: 150,
+        animationTypeForReplace: 'push',
+        gestureEnabled: false,
+      }}
+    >
       <Stack.Screen name="Home" component={HomeScreen} />
       <Stack.Screen name="CreateGame" component={CreateGameScreen} />
       <Stack.Screen name="JoinGame" component={JoinGameScreen} />

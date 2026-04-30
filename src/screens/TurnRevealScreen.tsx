@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, Animated } from 'react-native';
+import { View, Text, StyleSheet, Animated } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../config/supabase';
 import { useGame } from '../hooks/useGame';
@@ -14,6 +15,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'TurnReveal'>;
 export default function TurnRevealScreen({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
   const { game } = useGame(gameId);
+  const insets = useSafeAreaInsets();
   const isHost = game?.players[playerId]?.isHost ?? false;
   const animatedValues = useRef<Animated.Value[]>([]);
   const didAnimate = useRef(false);
@@ -66,7 +68,7 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
   const players = game.turnOrder.map((id) => game.players[id]).filter(Boolean);
 
   return (
-    <SafeAreaView style={s.safe}>
+    <View style={[s.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <Blobs />
       <View style={s.container}>
         <Mascot size={88} mood="think" />
@@ -113,7 +115,7 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
           })}
         </View>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 

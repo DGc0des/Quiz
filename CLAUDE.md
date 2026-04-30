@@ -81,6 +81,10 @@ Do NOT use `jest-expo` preset — it triggers the `react-native-reanimated` Babe
 
 The Solo Test button lets the host start a game with a single player, bypassing the `players.length < 2` guard. Useful for testing question flow without a second device.
 
+## Question selection (TurnScreen)
+
+`Game.usedQuestionIds: string[]` tracks every question ID picked during a game. When the active player selects a category + difficulty, `TurnScreen` passes this array to `pickQuestion()` which filters out already-used IDs. The chosen question's ID is appended to `usedQuestionIds` in the same Supabase write that advances status to `'question'`. The array resets to `[]` on new game / rematch creation (`CreateGameScreen`, `WinnerScreen`, `LoserScreen`).
+
 ## Conventions
 
 - Greek UI strings everywhere — do not change to English.

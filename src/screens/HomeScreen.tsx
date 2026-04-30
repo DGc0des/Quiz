@@ -5,10 +5,12 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
+  TouchableWithoutFeedback,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { C, F } from '../theme';
@@ -26,47 +28,47 @@ export default function HomeScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.safe}>
       <Blobs />
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <Logo size={120} />
-
-        <TextInput
-          style={[styles.input, focused && styles.inputFocused]}
-          placeholder="Εισάγετε το όνομά σας"
-          placeholderTextColor={C.inkMute}
-          value={playerName}
-          onChangeText={setPlayerName}
-          maxLength={20}
-          autoCapitalize="words"
-          returnKeyType="done"
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-        />
-
-        <TouchableOpacity
-          style={[styles.primaryBtn, !trimmed && styles.disabled]}
-          disabled={!trimmed}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('CreateGame', { playerName: trimmed })}
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={styles.primaryBtnInner}>
-            <Text style={styles.primaryBtnText}>Δημιουργία Παιχνιδιού</Text>
-          </View>
-        </TouchableOpacity>
+          <Logo size={120} />
 
-        <TouchableOpacity
-          style={[styles.ghostBtn, !trimmed && styles.disabled]}
-          disabled={!trimmed}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('JoinGame', { playerName: trimmed })}
-        >
-          <Text style={styles.ghostBtnText}>Είσοδος σε Παιχνίδι</Text>
-        </TouchableOpacity>
+          <TextInput
+            style={[styles.input, focused && styles.inputFocused]}
+            placeholder="Εισάγετε το όνομά σας"
+            placeholderTextColor={C.inkMute}
+            value={playerName}
+            onChangeText={setPlayerName}
+            maxLength={20}
+            autoCapitalize="words"
+            returnKeyType="done"
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+          />
 
-        
-      </KeyboardAvoidingView>
+          <TouchableOpacity
+            style={[styles.primaryBtn, !trimmed && styles.disabled]}
+            disabled={!trimmed}
+            activeOpacity={0.8}
+            onPress={() => navigation.navigate('CreateGame', { playerName: trimmed })}
+          >
+            <View style={styles.primaryBtnInner}>
+              <Text style={styles.primaryBtnText}>Δημιουργία Παιχνιδιού</Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.ghostBtn, !trimmed && styles.disabled]}
+            disabled={!trimmed}
+            activeOpacity={0.8}
+            onPress={() => navigation.navigate('JoinGame', { playerName: trimmed })}
+          >
+            <Text style={styles.ghostBtnText}>Είσοδος σε Παιχνίδι</Text>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </TouchableWithoutFeedback>
     </SafeAreaView>
   );
 }

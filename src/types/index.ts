@@ -64,6 +64,7 @@ export interface Game {
   createdAt: number;
   winnerId: string | null;
   rematchGameId: string | null;
+  usedQuestionIds: string[];
 }
 
 export type RootStackParamList = {

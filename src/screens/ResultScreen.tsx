@@ -4,9 +4,9 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../config/supabase';
 import { useGame } from '../hooks/useGame';
@@ -36,6 +36,7 @@ const WIN_SCORE = 15;
 export default function ResultScreen({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
   const { game } = useGame(gameId);
+  const insets = useSafeAreaInsets();
   const isHost = game?.players[playerId]?.isHost ?? false;
   const advancedRef = useRef(false);
 
@@ -112,7 +113,7 @@ export default function ResultScreen({ route, navigation }: Props) {
   const turnNumber = turn.turnNumber ?? 1;
 
   return (
-    <SafeAreaView style={s.safe}>
+    <View style={[s.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <Blobs />
       <ScrollView contentContainerStyle={s.scroll}>
         <Text style={s.eyebrow}>Γύρος {turnNumber}</Text>
@@ -203,7 +204,7 @@ export default function ResultScreen({ route, navigation }: Props) {
           <Text style={s.waitMsg}>Αναμονή για τον επόμενο γύρο...</Text>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 

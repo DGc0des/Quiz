@@ -4,11 +4,11 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   Animated,
   Easing,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../config/supabase';
 import { useGame } from '../hooks/useGame';
@@ -27,6 +27,7 @@ const TIMER_SECONDS = 30;
 export default function QuestionScreen({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
   const { game } = useGame(gameId);
+  const insets = useSafeAreaInsets();
 
   const turn = game?.currentTurn;
   const question = turn?.questionId ? getQuestionById(turn.questionId) : null;
@@ -426,7 +427,7 @@ export default function QuestionScreen({ route, navigation }: Props) {
   ] as const;
 
   return (
-    <SafeAreaView style={s.safe}>
+    <View style={[s.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <Blobs />
 
       {/* ── STEAL OVERLAY: flying fist + impact ring ── */}
@@ -912,7 +913,7 @@ export default function QuestionScreen({ route, navigation }: Props) {
 
         </ScrollView>
       </Animated.View>
-    </SafeAreaView>
+    </View>
   );
 }
 

@@ -4,9 +4,9 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../config/supabase';
 import { useGame } from '../hooks/useGame';
@@ -20,6 +20,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Turn'>;
 export default function TurnScreen({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
   const { game } = useGame(gameId);
+  const insets = useSafeAreaInsets();
   const [selectedPoints, setSelectedPoints] = useState<Points | null>(null);
 
   const isMyTurn = game?.currentTurn?.activePlayerId === playerId;
@@ -37,7 +38,7 @@ export default function TurnScreen({ route, navigation }: Props) {
   const handleSelectCategory = async (category: Category) => {
     if (!game || !isMyTurn || !selectedPoints) return;
 
-    const usedIds = Object.keys(game.currentTurn?.answers ?? {});
+    const usedIds = game.usedQuestionIds ?? [];
     const question =
       pickQuestion(category, selectedPoints, usedIds) ??
       pickQuestion(category, 1, usedIds) ??
@@ -48,6 +49,7 @@ export default function TurnScreen({ route, navigation }: Props) {
     const updated: Game = {
       ...game,
       status: 'question',
+      usedQuestionIds: [...usedIds, question.id],
       currentTurn: {
         ...game.currentTurn!,
         selectedPoints,
@@ -72,7 +74,7 @@ export default function TurnScreen({ route, navigation }: Props) {
   ];
 
   return (
-    <SafeAreaView style={s.safe}>
+    <View style={[s.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <Blobs />
       <ScrollView
         style={s.scroll}
@@ -172,7 +174,7 @@ export default function TurnScreen({ route, navigation }: Props) {
           </View>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 

@@ -4,10 +4,10 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   ActivityIndicator,
   Share,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
@@ -53,6 +53,7 @@ export default function CreateGameScreen({ route, navigation }: Props) {
           createdAt: Date.now(),
           winnerId: null,
           rematchGameId: null,
+          usedQuestionIds: [],
         },
       });
       if (error) setCreateError(error.message);
