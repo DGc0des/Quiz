@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
+  ScrollView,
   Animated,
   Easing,
 } from 'react-native';
@@ -84,6 +85,8 @@ export default function QuestionScreen({ route, navigation }: Props) {
           currentTurn: { ...freshGame.currentTurn, status: 'reviewing' },
         },
       }).eq('id', gameId);
+      // Navigate immediately — don't rely on realtime echo for the writer
+      navigation.replace('Result', { gameId, playerId });
     }
   };
 
@@ -520,6 +523,7 @@ export default function QuestionScreen({ route, navigation }: Props) {
           isSabotaged && { transform: [{ translateX: shakeAnim }] },
         ]}
       >
+        {/* ── Fixed header: always visible ── */}
         {/* Timer row */}
         <View style={s.timerRow}>
           <View style={s.timerBarBg}>
@@ -558,6 +562,14 @@ export default function QuestionScreen({ route, navigation }: Props) {
             </Text>
           </View>
         </View>
+
+        {/* ── Scrollable body ── */}
+        <ScrollView
+          style={s.scrollBody}
+          contentContainerStyle={s.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
 
         {/* Help buttons — visible only before answering and outside pickers */}
         {!answered && !stealMode && !sabotageMode && (
@@ -873,6 +885,32 @@ export default function QuestionScreen({ route, navigation }: Props) {
         {answered && !stealTargetId && (
           <Text style={s.waitMsg}>Αναμονή για τους άλλους...</Text>
         )}
+
+        {/* Who has answered */}
+        {game && turn && (
+          <View style={s.answeredStrip}>
+            {Object.values(game.players).map((p) => {
+              const done = p.id in turn.answers;
+              const isSelf = p.id === playerId;
+              return (
+                <View
+                  key={p.id}
+                  style={[s.answeredChip, done && s.answeredChipDone, isSelf && !done && s.answeredChipSelf]}
+                >
+                  <Avatar name={p.name} size={22} />
+                  <Text style={[s.answeredChipName, done && s.answeredChipNameDone]} numberOfLines={1}>
+                    {isSelf ? 'Εσύ' : p.name}
+                  </Text>
+                  <Text style={[s.answeredChipStatus, done && s.answeredChipStatusDone]}>
+                    {done ? '✓' : '...'}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        </ScrollView>
       </Animated.View>
     </SafeAreaView>
   );
@@ -880,7 +918,9 @@ export default function QuestionScreen({ route, navigation }: Props) {
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
-  container: { flex: 1, paddingHorizontal: 20, paddingTop: 18, gap: 14 },
+  container: { flex: 1, paddingHorizontal: 20, paddingTop: 18, gap: 10 },
+  scrollBody: { flex: 1 },
+  scrollContent: { gap: 12, paddingBottom: 24 },
 
   timerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   timerBarBg: {
@@ -1290,5 +1330,47 @@ const s = StyleSheet.create({
     fontFamily: F.sansMedium,
     color: C.inkSoft,
     fontSize: 14,
+  },
+
+  answeredStrip: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  answeredChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: C.surface,
+    borderWidth: 1.5,
+    borderColor: C.line,
+    borderRadius: 999,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+  },
+  answeredChipDone: {
+    borderColor: C.green,
+    backgroundColor: 'rgba(61,220,151,0.1)',
+  },
+  answeredChipSelf: {
+    borderColor: C.primary,
+  },
+  answeredChipName: {
+    fontFamily: F.sansMedium,
+    fontSize: 12,
+    color: C.inkSoft,
+    maxWidth: 80,
+  },
+  answeredChipNameDone: {
+    color: C.green,
+  },
+  answeredChipStatus: {
+    fontFamily: F.sansBold,
+    fontSize: 13,
+    color: C.inkMute,
+  },
+  answeredChipStatusDone: {
+    color: C.green,
   },
 });

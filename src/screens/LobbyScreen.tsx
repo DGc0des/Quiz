@@ -123,16 +123,22 @@ export default function LobbyScreen({ route, navigation }: Props) {
         <Text style={s.hint}>{hintText}</Text>
 
         {isHost && (
-          <View style={{ width: '100%', marginBottom: 16 }}>
-            <TouchableOpacity
-              style={[s.primaryBtn, players.length < 2 && s.disabled]}
-              disabled={players.length < 2}
-              onPress={handleStart}
-              activeOpacity={0.85}
-            >
-              <Text style={s.primaryBtnText}>▶  Έναρξη Παιχνιδιού</Text>
+          <View style={{ width: '100%', marginBottom: 16, gap: 10 }}>
+            <View>
+              <TouchableOpacity
+                style={[s.primaryBtn, players.length < 2 && s.disabled]}
+                disabled={players.length < 2}
+                onPress={handleStart}
+                activeOpacity={0.85}
+              >
+                <Text style={s.primaryBtnText}>▶  Έναρξη Παιχνιδιού</Text>
+              </TouchableOpacity>
+              <View style={s.primaryBtnShadow} />
+            </View>
+            {/* DEV ONLY — delete before release */}
+            <TouchableOpacity style={s.devBtn} onPress={handleStart} activeOpacity={0.75}>
+              <Text style={s.devBtnText}>🛠 Solo Test (DEV)</Text>
             </TouchableOpacity>
-            <View style={s.primaryBtnShadow} />
           </View>
         )}
       </View>
@@ -312,4 +318,18 @@ const s = StyleSheet.create({
     fontSize: 16,
   },
   disabled: { opacity: 0.4 },
+
+  devBtn: {
+    borderWidth: 1.5,
+    borderColor: '#f59e0b',
+    borderRadius: 999,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: 'rgba(245,158,11,0.08)',
+  },
+  devBtnText: {
+    fontFamily: F.sansBold,
+    fontSize: 14,
+    color: '#f59e0b',
+  },
 });

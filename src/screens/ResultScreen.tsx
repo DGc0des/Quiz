@@ -92,6 +92,14 @@ export default function ResultScreen({ route, navigation }: Props) {
           },
     };
     await supabase.from('games').update({ data: updated }).eq('id', gameId);
+
+    // Navigate immediately — don't rely on realtime echo, which may not fire for the writer
+    if (updated.winnerId) {
+      const isWinner = updated.winnerId === playerId;
+      navigation.replace(isWinner ? 'Winner' : 'Loser', { gameId, playerId });
+    } else {
+      navigation.replace('Turn', { gameId, playerId });
+    }
   };
 
   if (!game || !game.currentTurn) return null;

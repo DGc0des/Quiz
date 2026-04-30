@@ -73,6 +73,14 @@ earned = isCorrect ? (hasDouble ? points * 2 : points) : 0
 
 Do NOT use `jest-expo` preset — it triggers the `react-native-reanimated` Babel plugin which requires `react-native-worklets` (not installed). `ts-jest` with `testEnvironment: node` works cleanly for all pure-logic tests.
 
+## DEV-ONLY additions (delete before release)
+
+| What | Where | How to remove |
+|---|---|---|
+| **Solo Test button** | `src/screens/LobbyScreen.tsx` | Delete the `{/* DEV ONLY */}` `TouchableOpacity` block and the `devBtn` / `devBtnText` styles |
+
+The Solo Test button lets the host start a game with a single player, bypassing the `players.length < 2` guard. Useful for testing question flow without a second device.
+
 ## Conventions
 
 - Greek UI strings everywhere — do not change to English.
