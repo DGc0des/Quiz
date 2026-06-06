@@ -6,14 +6,17 @@ import {
   StyleSheet,
   FlatList,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import QRCode from 'react-native-qrcode-svg';
-import { supabase } from '../config/supabase';
 import { useGame } from '../hooks/useGame';
+import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
 import { shuffle } from '../utils/shuffle';
-import { RootStackParamList, Player, Game } from '../types';
+import { leaveGame } from '../utils/leaveGame';
+import { updateGame } from '../utils/updateGame';
+import { RootStackParamList, Player } from '../types';
 import { C, F, SHADOW } from '../theme';
 import { Blobs } from '../components/Blobs';
 import { Avatar } from '../components/Avatar';
@@ -22,29 +25,85 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Lobby'>;
 
 export default function LobbyScreen({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
-  const { game, loading } = useGame(gameId);
+  const { game, loading, error } = useGame(gameId);
 
   const isHost = game?.players[playerId]?.isHost ?? false;
   const players = game ? Object.values(game.players).sort((a, b) => a.joinedAt - b.joinedAt) : [];
+
+  useGamePresence(gameId, playerId, game ?? null);
 
   useEffect(() => {
     if (!game) return;
     if (game.status === 'turn_reveal') {
       navigation.replace('TurnReveal', { gameId, playerId });
     }
+    if (game.status === 'finished' && !game.winnerId) {
+      navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+    }
   }, [game?.status]);
+
+  const handleLeave = () => {
+    if (!game) return;
+    Alert.alert(
+      'Έξοδος από το παιχνίδι;',
+      'Αν φύγεις, η θέση σου χάνεται.',
+      [
+        { text: 'Ακύρωση', style: 'cancel' },
+        {
+          text: 'Έξοδος',
+          style: 'destructive',
+          onPress: async () => {
+            await leaveGame(gameId, playerId, game);
+            leavePresence(gameId);
+            navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+          },
+        },
+      ],
+    );
+  };
 
   const handleStart = async () => {
     if (!game) return;
-    const shuffled = shuffle(players.map((p) => p.id));
-    const updated: Game = { ...game, status: 'turn_reveal', turnOrder: shuffled, currentTurnIndex: 0 };
-    await supabase.from('games').update({ data: updated }).eq('id', gameId);
+    await updateGame(
+      gameId,
+      (g) => {
+        if (g.status !== 'lobby') return null;
+        const shuffled = shuffle(Object.values(g.players).map((p) => p.id));
+        return { ...g, status: 'turn_reveal', turnOrder: shuffled, currentTurnIndex: 0 };
+      },
+      { base: game },
+    );
   };
 
   if (loading) {
     return (
       <SafeAreaView style={s.safe}>
         <ActivityIndicator size="large" color={C.primary} style={{ flex: 1 }} />
+      </SafeAreaView>
+    );
+  }
+
+  if (error && !game) {
+    return (
+      <SafeAreaView style={s.safe}>
+        <Blobs />
+        <View style={s.errorWrap}>
+          <Text style={s.errorTitle}>
+            {error === 'not-found'
+              ? 'Το παιχνίδι δεν βρέθηκε.'
+              : 'Σφάλμα σύνδεσης. Δοκιμάστε ξανά.'}
+          </Text>
+          <View>
+            <TouchableOpacity
+              style={s.primaryBtn}
+              onPress={() => navigation.reset({ index: 0, routes: [{ name: 'Home' }] })}
+              activeOpacity={0.85}
+            >
+              <Text style={s.primaryBtnText}>Επιστροφή</Text>
+            </TouchableOpacity>
+            <View style={s.primaryBtnShadow} />
+          </View>
+        </View>
       </SafeAreaView>
     );
   }
@@ -59,10 +118,16 @@ export default function LobbyScreen({ route, navigation }: Props) {
     <SafeAreaView style={s.safe}>
       <Blobs />
       <View style={s.container}>
-        <Text style={s.eyebrow}>Αίθουσα Αναμονής</Text>
+        <View style={s.headerRow}>
+          <TouchableOpacity style={s.backBtn} activeOpacity={0.7} onPress={handleLeave}>
+            <Text style={s.backBtnText}>←</Text>
+          </TouchableOpacity>
+          <Text style={s.eyebrow}>Αίθουσα Αναμονής</Text>
+          <View style={{ width: 38 }} />
+        </View>
         <Text style={s.title}>Έτοιμοι;</Text>
 
-        {/* Code + QR card */}
+        {/* Code + QR card — mini QR encodes raw game id only (fewer modules → scannable small); scanner accepts deep link too */}
         <View style={[s.card, SHADOW.card]}>
           <View style={s.cardInner}>
             <View style={{ flex: 1 }}>
@@ -71,10 +136,11 @@ export default function LobbyScreen({ route, navigation }: Props) {
             </View>
             <View style={s.qrWrap}>
               <QRCode
-                value={`quizapp://join/${gameId}`}
-                size={44}
-                backgroundColor={C.bg2}
-                color={C.ink}
+                value={gameId}
+                size={56}
+                ecl="L"
+                backgroundColor="#ffffff"
+                color={C.bg}
               />
             </View>
           </View>
@@ -148,10 +214,45 @@ export default function LobbyScreen({ route, navigation }: Props) {
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
+  errorWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    gap: 20,
+  },
+  errorTitle: {
+    fontFamily: F.sansSemiBold,
+    fontSize: 16,
+    color: C.ink,
+    textAlign: 'center',
+  },
   container: {
     flex: 1,
     paddingHorizontal: 24,
     paddingTop: 24,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  backBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    backgroundColor: C.surface,
+    borderWidth: 1.5,
+    borderColor: C.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOW.card,
+  },
+  backBtnText: {
+    fontSize: 18,
+    color: C.ink,
+    marginTop: -1,
   },
   eyebrow: {
     textTransform: 'uppercase',
@@ -160,7 +261,6 @@ const s = StyleSheet.create({
     fontFamily: F.sansBold,
     color: C.inkMute,
     textAlign: 'center',
-    marginBottom: 4,
   },
   title: {
     fontSize: 28,
@@ -197,12 +297,14 @@ const s = StyleSheet.create({
     letterSpacing: 6,
   },
   qrWrap: {
-    width: 56,
-    height: 56,
-    backgroundColor: C.bg2,
+    width: 64,
+    height: 64,
+    backgroundColor: '#ffffff',
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: C.line,
   },
 
   playersHeader: {

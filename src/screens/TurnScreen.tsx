@@ -5,15 +5,19 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { supabase } from '../config/supabase';
 import { useGame } from '../hooks/useGame';
 import { pickQuestion, CATEGORIES } from '../data/questions';
-import { RootStackParamList, Points, Category, Game } from '../types';
+import { leaveGame } from '../utils/leaveGame';
+import { updateGame } from '../utils/updateGame';
+import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
+import { RootStackParamList, Points, Category } from '../types';
 import { C, F, SHADOW, CATEGORY_META } from '../theme';
 import { Blobs } from '../components/Blobs';
+import { ScoreRow } from '../components/ScoreRow';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Turn'>;
 
@@ -26,40 +30,75 @@ export default function TurnScreen({ route, navigation }: Props) {
   const isMyTurn = game?.currentTurn?.activePlayerId === playerId;
   const activeName = game?.currentTurn ? game.players[game.currentTurn.activePlayerId]?.name : '';
 
+  useGamePresence(gameId, playerId, game ?? null);
+
   useEffect(() => {
     if (!game) return;
     if (game.status === 'question') navigation.replace('Question', { gameId, playerId });
     if (game.status === 'finished') {
+      if (!game.winnerId) {
+        navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+        return;
+      }
       const isWinner = game.winnerId === playerId;
       navigation.replace(isWinner ? 'Winner' : 'Loser', { gameId, playerId });
     }
   }, [game?.status]);
 
+  const handleLeave = () => {
+    if (!game) return;
+    Alert.alert(
+      'Έξοδος από το παιχνίδι;',
+      'Αν φύγεις, η θέση σου χάνεται.',
+      [
+        { text: 'Ακύρωση', style: 'cancel' },
+        {
+          text: 'Έξοδος',
+          style: 'destructive',
+          onPress: async () => {
+            await leaveGame(gameId, playerId, game);
+            leavePresence(gameId);
+            navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+          },
+        },
+      ],
+    );
+  };
+
   const handleSelectCategory = async (category: Category) => {
     if (!game || !isMyTurn || !selectedPoints) return;
+    const points = selectedPoints;
 
-    const usedIds = game.usedQuestionIds ?? [];
-    const question =
-      pickQuestion(category, selectedPoints, usedIds) ??
-      pickQuestion(category, 1, usedIds) ??
-      pickQuestion(category, 2, usedIds) ??
-      pickQuestion(category, 3, usedIds);
-    if (!question) return;
+    await updateGame(
+      gameId,
+      (g) => {
+        const ct = g.currentTurn;
+        if (!ct || g.status !== 'picking' || ct.activePlayerId !== playerId) return null;
 
-    const updated: Game = {
-      ...game,
-      status: 'question',
-      usedQuestionIds: [...usedIds, question.id],
-      currentTurn: {
-        ...game.currentTurn!,
-        selectedPoints,
-        selectedCategory: category,
-        questionId: question.id,
-        timerStartedAt: Date.now(),
-        status: 'question',
+        const usedIds = g.usedQuestionIds ?? [];
+        const question =
+          pickQuestion(category, points, usedIds) ??
+          pickQuestion(category, 1, usedIds) ??
+          pickQuestion(category, 2, usedIds) ??
+          pickQuestion(category, 3, usedIds);
+        if (!question) return null;
+
+        return {
+          ...g,
+          status: 'question',
+          usedQuestionIds: [...usedIds, question.id],
+          currentTurn: {
+            ...ct,
+            selectedPoints: points,
+            selectedCategory: category,
+            questionId: question.id,
+            timerStartedAt: Date.now(),
+            status: 'question',
+          },
+        };
       },
-    };
-    await supabase.from('games').update({ data: updated }).eq('id', gameId);
+      { base: game },
+    );
   };
 
   if (!game) return null;
@@ -76,40 +115,15 @@ export default function TurnScreen({ route, navigation }: Props) {
   return (
     <View style={[s.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <Blobs />
+      <TouchableOpacity style={s.leaveBtn} onPress={handleLeave} activeOpacity={0.7}>
+        <Text style={s.leaveBtnText}>×</Text>
+      </TouchableOpacity>
       <ScrollView
         style={s.scroll}
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Mini Score Row */}
-        <View style={s.scoreRow}>
-          {sortedPlayers.map((p) => {
-            const isSelf = p.id === playerId;
-            const isActive = p.id === activePlayerId;
-            return (
-              <View
-                key={p.id}
-                style={[
-                  s.scoreBox,
-                  isSelf && s.scoreBoxSelf,
-                  isActive && s.scoreBoxActive,
-                ]}
-              >
-                <Text
-                  style={[s.scoreNum, isActive && s.scoreNumActive]}
-                >
-                  {p.score}
-                </Text>
-                <Text
-                  style={[s.scoreLabel, isActive && s.scoreLabelActive]}
-                  numberOfLines={1}
-                >
-                  {p.name}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
+        <ScoreRow players={sortedPlayers} selfId={playerId} activePlayerId={activePlayerId} />
 
         {isMyTurn ? (
           <>
@@ -180,44 +194,28 @@ export default function TurnScreen({ route, navigation }: Props) {
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
-  scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 24, paddingTop: 22, paddingBottom: 40 },
-
-  /* Mini Score Row */
-  scoreRow: {
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
-  },
-  scoreBox: {
-    flex: 1,
+  leaveBtn: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 999,
     backgroundColor: C.surface,
     borderWidth: 1.5,
     borderColor: C.line,
-    borderRadius: 16,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    minWidth: 64,
     alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOW.card,
   },
-  scoreBoxSelf: { borderColor: C.primary },
-  scoreBoxActive: {
-    backgroundColor: C.primary,
-    borderColor: C.primary,
+  leaveBtnText: {
+    fontSize: 20,
+    color: C.inkSoft,
+    marginTop: -1,
   },
-  scoreNum: {
-    fontFamily: F.display,
-    fontSize: 22,
-    color: C.primary,
-  },
-  scoreNumActive: { color: '#FFFFFF' },
-  scoreLabel: {
-    fontFamily: F.sansSemiBold,
-    fontSize: 11,
-    color: C.inkMute,
-    maxWidth: 70,
-  },
-  scoreLabelActive: { color: '#FFFFFF' },
+  scroll: { flex: 1 },
+  scrollContent: { paddingHorizontal: 24, paddingTop: 22, paddingBottom: 40 },
 
   /* Turn Header */
   header: { alignItems: 'center', marginTop: 22 },

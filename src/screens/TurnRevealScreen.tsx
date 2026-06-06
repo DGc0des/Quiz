@@ -1,14 +1,17 @@
 import { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated } from 'react-native';
+import { View, Text, StyleSheet, Animated, TouchableOpacity, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { supabase } from '../config/supabase';
 import { useGame } from '../hooks/useGame';
-import { RootStackParamList, Game } from '../types';
+import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
+import { leaveGame } from '../utils/leaveGame';
+import { updateGame } from '../utils/updateGame';
+import { RootStackParamList } from '../types';
 import { C, F, SHADOW } from '../theme';
 import { Blobs } from '../components/Blobs';
 import { Mascot } from '../components/Mascot';
 import { Avatar } from '../components/Avatar';
+import { ScoreRow } from '../components/ScoreRow';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TurnReveal'>;
 
@@ -19,6 +22,8 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
   const isHost = game?.players[playerId]?.isHost ?? false;
   const animatedValues = useRef<Animated.Value[]>([]);
   const didAnimate = useRef(false);
+
+  useGamePresence(gameId, playerId, game ?? null);
 
   useEffect(() => {
     if (!game || game.status !== 'turn_reveal' || didAnimate.current) return;
@@ -37,23 +42,29 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
       )
     ).start(() => {
       if (!isHost) return;
-      setTimeout(async () => {
-        const firstId = game.turnOrder[0];
-        const updated: Game = {
-          ...game,
-          status: 'picking',
-          currentTurn: {
-            turnNumber: 1,
-            activePlayerId: firstId,
-            selectedPoints: null,
-            selectedCategory: null,
-            questionId: null,
-            answers: {},
-            timerStartedAt: null,
-            status: 'picking',
+      setTimeout(() => {
+        updateGame(
+          gameId,
+          (g) => {
+            if (g.status !== 'turn_reveal') return null;
+            const firstId = g.turnOrder[0];
+            return {
+              ...g,
+              status: 'picking',
+              currentTurn: {
+                turnNumber: 1,
+                activePlayerId: firstId,
+                selectedPoints: null,
+                selectedCategory: null,
+                questionId: null,
+                answers: {},
+                timerStartedAt: null,
+                status: 'picking',
+              },
+            };
           },
-        };
-        await supabase.from('games').update({ data: updated }).eq('id', gameId);
+          { base: game },
+        );
       }, 1500);
     });
   }, [game?.status]);
@@ -61,7 +72,30 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
   useEffect(() => {
     if (!game) return;
     if (game.status === 'picking') navigation.replace('Turn', { gameId, playerId });
+    if (game.status === 'finished' && !game.winnerId) {
+      navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+    }
   }, [game?.status]);
+
+  const handleLeave = () => {
+    if (!game) return;
+    Alert.alert(
+      'Έξοδος από το παιχνίδι;',
+      'Αν φύγεις, η θέση σου χάνεται.',
+      [
+        { text: 'Ακύρωση', style: 'cancel' },
+        {
+          text: 'Έξοδος',
+          style: 'destructive',
+          onPress: async () => {
+            await leaveGame(gameId, playerId, game);
+            leavePresence(gameId);
+            navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+          },
+        },
+      ],
+    );
+  };
 
   if (!game) return null;
 
@@ -70,6 +104,12 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
   return (
     <View style={[s.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <Blobs />
+      <TouchableOpacity style={s.leaveBtn} onPress={handleLeave} activeOpacity={0.7}>
+        <Text style={s.leaveBtnText}>×</Text>
+      </TouchableOpacity>
+      <View style={s.scoreRowWrap}>
+        <ScoreRow players={players} selfId={playerId} />
+      </View>
       <View style={s.container}>
         <Mascot size={88} mood="think" />
         <Text style={s.eyebrow}>Η ΤΥΧΑΙΑ ΣΕΙΡΑ ΕΙΝΑΙ...</Text>
@@ -121,6 +161,27 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
+  scoreRowWrap: { paddingHorizontal: 24, paddingTop: 8 },
+  leaveBtn: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 999,
+    backgroundColor: C.surface,
+    borderWidth: 1.5,
+    borderColor: C.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOW.card,
+  },
+  leaveBtnText: {
+    fontSize: 20,
+    color: C.inkSoft,
+    marginTop: -1,
+  },
   container: {
     flex: 1,
     alignItems: 'center',

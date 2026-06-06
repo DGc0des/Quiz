@@ -1,18 +1,5 @@
 import { Turn, PlayerAnswer } from '../types';
-
-// Extracted logic from ResultScreen – tested in isolation
-function resolveAnswers(turn: Turn): Record<string, PlayerAnswer> {
-  const resolved = { ...turn.answers };
-  for (const [pid, answer] of Object.entries(turn.answers)) {
-    if (answer.stolenFrom) {
-      const target = turn.answers[answer.stolenFrom];
-      if (target) {
-        resolved[pid] = { ...answer, answerIndex: target.answerIndex, isCorrect: target.isCorrect };
-      }
-    }
-  }
-  return resolved;
-}
+import { resolveAnswers } from '../utils/scoring';
 
 function makeTurn(answers: Record<string, PlayerAnswer>): Turn {
   return {

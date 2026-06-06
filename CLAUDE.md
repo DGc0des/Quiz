@@ -6,14 +6,23 @@ Real-time multiplayer quiz game in Greek. Players join via a 6-character code or
 
 **Stack:** Expo 54 (React Native, TypeScript) · Supabase (Postgres + Realtime) · React Navigation native-stack
 
+> **Keep the docs in sync.** After **every** change to the code or behaviour,
+> update this `CLAUDE.md` in the same change so it always reflects the current
+> state. CLAUDE.md tracks architecture/layout/conventions (functions, module
+> state, file roles, testing, helps/scoring rules, the state machine). If a
+> change touches something it describes, edit that section too — don't leave it
+> stale. Keep `toSolve.md` current as well: when a tracked issue is fixed, move
+> it out of the open list. If a user-facing `README.md` is ever added (features,
+> setup, how to play), apply the same rule to it for the user-facing side.
+
 ## Architecture
 
 ### Game state machine
 ```
 lobby → turn_reveal → picking → question → reviewing → (next turn or finished)
 ```
-- The **host is the only writer for status transitions** — never let non-hosts advance game status.
-- Players only write their own answer key (via `add_game_answer` RPC).
+- The host drives most status transitions; the **last player to answer** flips `question → reviewing`. All writes are safe under concurrency because every write goes through `updateGame()` (see below).
+- All game mutations (answers, helps, joins, leaves, status changes) go through `updateGame()` in `src/utils/updateGame.ts` — a **version-guarded optimistic-concurrency** read-modify-write. The legacy `add_player_to_game` / `add_game_answer` RPCs are no longer called by the client.
 - All clients subscribe via a single `postgres_changes` realtime listener in `useGame.ts`.
 
 ### Key files
@@ -25,16 +34,21 @@ lobby → turn_reveal → picking → question → reviewing → (next turn or f
 | `src/data/questions.ts` | 75 questions — 6 categories × 3 difficulties × ~5 each |
 | `src/utils/gameId.ts` | Generates 6-char codes from an unambiguous alphabet (no 0/1/I/L/O) |
 | `src/utils/shuffle.ts` | Fisher-Yates, non-mutating |
+| `src/utils/updateGame.ts` | **Version-guarded OCC write helper** — the only path that mutates a game; retries on lost races |
+| `src/utils/leaveGame.ts` | Remove a player, transfer host, keep turn pointer valid (via `updateGame`) |
+| `src/hooks/useGamePresence.ts` | Presence tracking; earliest-joined survivor (janitor) cleans up disconnects |
 | `src/screens/` | 9 screens for full game flow |
 | `src/types/index.ts` | All shared types: `Game`, `Turn`, `Player`, `PlayerAnswer`, etc. |
 
 ### Deep link scheme
-`quizapp://join/{gameId}` — gameId is always 6 uppercase chars from the unambiguous alphabet.  
-QR codes encode this URL. The regex that parses it **must** be end-anchored: `/quizapp:\/\/join\/([A-Z0-9]{6})$/`.
+`quizapp://join/{gameId}` — gameId is always 6 chars from the unambiguous alphabet (`GAME_CODE_ALPHABET` in `gameId.ts`). Used for share/copy and universal linking.
+
+**QR payloads:** The large invite QR (CreateGame) and mini lobby QR encode **only the raw 6-character game id** (densest QR → stays scannable at small size). The camera scanner also accepts the full `quizapp://join/{id}` string. Parsing lives in `parseGameCodeFromScanPayload()` in `gameId.ts`.
 
 ### Supabase schema
-Games are stored as a single JSONB `data` column in a `games` table (id = gameId).  
-Two RPCs exist:
+Games are stored as a single JSONB `data` column in a `games` table (id = gameId). `data` carries a numeric `version` (see `Game.version`), bumped on every write and used by `updateGame` for optimistic concurrency.
+
+Two RPCs still exist server-side but are **no longer used by the client** (replaced by `updateGame`'s version-guarded writes); leave them in place or drop them:
 - `add_player_to_game(p_game_id, p_player_id, p_player_data)` — atomic player join
 - `add_game_answer(p_game_id, p_player_id, p_answer)` — atomic answer write
 
@@ -51,17 +65,19 @@ Each player gets one use of each help per game (`usedHelps` on the `Player` obje
 
 ## Score calculation (ResultScreen)
 
-```
-earned = isCorrect ? (hasDouble ? points * 2 : points) : 0
-```
-`resolveAnswers()` must run before scoring so steal answers inherit the target's `isCorrect`.  
-`WIN_SCORE = 15`. Winner is whoever first reaches or exceeds it after a round.
+Scoring lives in `src/utils/scoring.ts` (single source of truth, unit-tested) — `ResultScreen` and the tests both call it; don't re-implement the formula inline.
 
-## Known issues (open)
+```
+base   = usedFifty ? 1 : selectedPoints   // 50/50 caps the round to 1 point
+earned = isCorrect ? (hasDouble ? base * 2 : base) : 0
+```
+- **`earnedForPlayer(turn, resolved, playerId)`** computes the above. Using **50/50 caps the base to 1** (the trade-off for eliminating two options); Double then doubles it (so 50/50 + Double on a correct answer = 2).
+- **`resolveAnswers(turn)`** must run before scoring so steal answers inherit the target's `isCorrect`.
+- **`pickWinner(players)`** decides the winner: highest scorer ≥ `WIN_SCORE` (15), tie-broken by score then earliest `joinedAt`. Do **not** use `.find(p => p.score >= WIN_SCORE)` — that returns the earliest *joiner*, not the top scorer.
 
-1. **ResultScreen ranking vs score mismatch** — players are sorted by pre-round score but the displayed total is post-round. Fix: sort by `score + earned` after computing all earned values.
-2. **Camera permission race in JoinGameScreen** — `setScanning(true)` fires even if permission is denied. Fix: check `permission.granted` after `await requestPermission()` before setting scanning.
-3. **Missing `picking` guard in QuestionScreen status effect** — add `if (game.status === 'picking') navigation.replace('Turn', ...)` to prevent players getting stuck.
+## Known issues
+
+The live issue list lives in `toSolve.md` at the repo root. The three issues previously tracked here (ResultScreen ranking, camera-permission race, missing `picking` guard) are all **fixed**. Criticals C1/C2 (concurrent-write clobbering, host-crash) and highs H1/H2 (winner selection, `useGame` spinner) are fixed too — see `toSolve.md` for what remains.
 
 ## Testing
 
@@ -88,7 +104,6 @@ The Solo Test button lets the host start a game with a single player, bypassing 
 ## Conventions
 
 - Greek UI strings everywhere — do not change to English.
-- Host-only writes: only the host calls `supabase.update` to advance `game.status`.
 - `advancedRef` pattern in ResultScreen prevents double-advancing on re-render.
 - `timerFired` ref in QuestionScreen prevents double-submitting on timer expiry.
-- All Supabase writes are full document replacements (`update({ data: updatedGame })`), not partial patches — always spread the full game object.
+- **Never call `supabase.from('games').update(...)` directly.** Mutate via `updateGame(gameId, (g) => next | null, { base })`: the mutator must be pure (it may re-run on a retry), read everything from its `g` argument, and return `null` to abort without writing. Pass the current game as `base` to skip the first read on the happy path. Inserts (new game / rematch) still use `insert` and must set `version: 0`.

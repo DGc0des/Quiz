@@ -13,7 +13,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { supabase } from '../config/supabase';
+import { updateGame } from '../utils/updateGame';
+import { parseGameCodeFromScanPayload } from '../utils/gameId';
 import { RootStackParamList } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { C, F, SHADOW } from '../theme';
@@ -27,6 +28,8 @@ const CODE_LENGTH = 6;
 export default function JoinGameScreen({ route, navigation }: Props) {
   const { playerName, gameCode: initialCode } = route.params;
   const [code, setCode] = useState(initialCode ?? '');
+  const [name, setName] = useState(playerName ?? '');
+  const needsName = !playerName; // opened via deep link → no name was entered yet
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -34,6 +37,11 @@ export default function JoinGameScreen({ route, navigation }: Props) {
   const hiddenInputRef = useRef<TextInput>(null);
 
   const handleJoin = async () => {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setError('Εισάγετε το όνομά σας.');
+      return;
+    }
     const trimmed = code.trim().toUpperCase();
     if (trimmed.length !== 6) {
       setError('Ο κωδικός πρέπει να είναι 6 χαρακτήρες.');
@@ -41,46 +49,38 @@ export default function JoinGameScreen({ route, navigation }: Props) {
     }
     setLoading(true);
     setError('');
-    try {
-      const { data: row, error: fetchErr } = await supabase
-        .from('games')
-        .select('data')
-        .eq('id', trimmed)
-        .single();
 
-      if (fetchErr) {
-        setError(fetchErr.code === 'PGRST116'
-          ? 'Το παιχνίδι δεν βρέθηκε.'
-          : `Σφάλμα: ${fetchErr.message}`);
-        setLoading(false);
-        return;
-      }
-      if (!row) {
+    const playerId = uuidv4();
+    try {
+      const result = await updateGame(trimmed, (g) => {
+        if (g.status !== 'lobby') return null; // exists but already started
+        if (playerId in g.players) return g; // idempotent
+        return {
+          ...g,
+          players: {
+            ...g.players,
+            [playerId]: {
+              id: playerId,
+              name: trimmedName,
+              score: 0,
+              isHost: false,
+              joinedAt: Date.now(),
+              usedHelps: { fifty: false, steal: false, double: false, sabotage: false },
+            },
+          },
+        };
+      });
+
+      if (result === null) {
         setError('Το παιχνίδι δεν βρέθηκε.');
         setLoading(false);
         return;
       }
-      if (row.data.status !== 'lobby') {
+      if (!(playerId in result.players)) {
         setError('Το παιχνίδι έχει ήδη ξεκινήσει.');
         setLoading(false);
         return;
       }
-
-      const playerId = uuidv4();
-      const { error: rpcErr } = await supabase.rpc('add_player_to_game', {
-        p_game_id: trimmed,
-        p_player_id: playerId,
-        p_player_data: {
-          id: playerId,
-          name: playerName,
-          score: 0,
-          isHost: false,
-          joinedAt: Date.now(),
-          usedHelps: { fifty: false, steal: false, double: false, sabotage: false },
-        },
-      });
-
-      if (rpcErr) throw rpcErr;
       navigation.replace('Lobby', { gameId: trimmed, playerId });
     } catch {
       setError('Σφάλμα σύνδεσης. Δοκιμάστε ξανά.');
@@ -89,7 +89,10 @@ export default function JoinGameScreen({ route, navigation }: Props) {
   };
 
   const handleScan = async () => {
-    if (!permission?.granted) await requestPermission();
+    if (!permission?.granted) {
+      const result = await requestPermission();
+      if (!result.granted) return;
+    }
     setScanning(true);
   };
 
@@ -100,9 +103,9 @@ export default function JoinGameScreen({ route, navigation }: Props) {
           style={{ flex: 1 }}
           barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
           onBarcodeScanned={({ data }) => {
-            const match = data.match(/quizapp:\/\/join\/([A-Z0-9]{6})$/);
-            if (match) {
-              setCode(match[1]);
+            const code = parseGameCodeFromScanPayload(data);
+            if (code) {
+              setCode(code);
               setScanning(false);
             }
           }}
@@ -135,6 +138,20 @@ export default function JoinGameScreen({ route, navigation }: Props) {
           <Mascot size={88} mood="think" />
           <Text style={s.title}>Είσοδος</Text>
           <Text style={s.subtitle}>Εισάγετε τον κωδικό ή σαρώστε το QR</Text>
+
+          {needsName && (
+            <TextInput
+              style={s.nameInput}
+              placeholder="Το όνομά σας"
+              placeholderTextColor={C.inkMute}
+              value={name}
+              onChangeText={setName}
+              maxLength={20}
+              autoCapitalize="words"
+              returnKeyType="done"
+              autoCorrect={false}
+            />
+          )}
 
           <TextInput
             ref={hiddenInputRef}
@@ -177,8 +194,8 @@ export default function JoinGameScreen({ route, navigation }: Props) {
 
           <View style={{ width: '100%' }}>
             <TouchableOpacity
-              style={[s.primaryBtn, (!code.trim() || loading) && s.disabled]}
-              disabled={!code.trim() || loading}
+              style={[s.primaryBtn, (!code.trim() || !name.trim() || loading) && s.disabled]}
+              disabled={!code.trim() || !name.trim() || loading}
               onPress={handleJoin}
               activeOpacity={0.85}
             >
@@ -248,6 +265,19 @@ const s = StyleSheet.create({
     color: C.inkSoft,
     textAlign: 'center',
     marginBottom: 4,
+  },
+  nameInput: {
+    width: '100%',
+    backgroundColor: C.surface,
+    borderWidth: 1.5,
+    borderColor: C.line,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontFamily: F.sansMedium,
+    fontSize: 16,
+    color: C.ink,
+    textAlign: 'center',
   },
   hiddenInput: {
     position: 'absolute',

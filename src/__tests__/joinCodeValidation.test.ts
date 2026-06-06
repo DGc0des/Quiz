@@ -1,4 +1,6 @@
-// Tests for join-code validation logic from JoinGameScreen
+// Tests for join-code validation logic from JoinGameScreen + QR parsing from gameId.ts
+
+import { parseGameCodeFromScanPayload } from '../utils/gameId';
 
 function validateCode(code: string): string | null {
   const trimmed = code.trim().toUpperCase();
@@ -6,30 +8,25 @@ function validateCode(code: string): string | null {
   return null;
 }
 
-function parseQRDeepLink(data: string): string | null {
-  const match = data.match(/quizapp:\/\/join\/([A-Z0-9]{6})$/);
-  return match ? match[1] : null;
-}
-
 describe('join code validation', () => {
   it('accepts a valid 6-character code', () => {
-    expect(validateCode('ABC123')).toBeNull();
+    expect(validateCode('ABC234')).toBeNull();
   });
 
   it('rejects code shorter than 6 characters', () => {
-    expect(validateCode('AB12')).not.toBeNull();
+    expect(validateCode('AB23')).not.toBeNull();
   });
 
   it('rejects code longer than 6 characters', () => {
-    expect(validateCode('ABC1234')).not.toBeNull();
+    expect(validateCode('ABC2345')).not.toBeNull();
   });
 
   it('trims whitespace before validating', () => {
-    expect(validateCode('  AB1234  ')).toBeNull();
+    expect(validateCode('  ABC234  ')).toBeNull();
   });
 
   it('accepts lowercase by uppercasing first', () => {
-    expect(validateCode('abc123')).toBeNull();
+    expect(validateCode('abc234')).toBeNull();
   });
 
   it('rejects empty string', () => {
@@ -37,24 +34,36 @@ describe('join code validation', () => {
   });
 });
 
-describe('QR deep link parsing', () => {
+describe('QR scan payload parsing', () => {
   it('extracts code from valid deep link', () => {
-    expect(parseQRDeepLink('quizapp://join/ABC123')).toBe('ABC123');
+    expect(parseGameCodeFromScanPayload('quizapp://join/ABC234')).toBe('ABC234');
+  });
+
+  it('extracts raw 6-char game code (mini lobby QR)', () => {
+    expect(parseGameCodeFromScanPayload('ABC234')).toBe('ABC234');
+    expect(parseGameCodeFromScanPayload('  XYZ789  ')).toBe('XYZ789');
   });
 
   it('returns null for wrong scheme', () => {
-    expect(parseQRDeepLink('https://example.com/join/ABC123')).toBeNull();
+    expect(parseGameCodeFromScanPayload('https://example.com/join/ABC234')).toBeNull();
   });
 
   it('returns null for code shorter than 6 chars', () => {
-    expect(parseQRDeepLink('quizapp://join/AB12')).toBeNull();
+    expect(parseGameCodeFromScanPayload('quizapp://join/AB23')).toBeNull();
+    expect(parseGameCodeFromScanPayload('AB23')).toBeNull();
   });
 
   it('returns null for code longer than 6 chars', () => {
-    expect(parseQRDeepLink('quizapp://join/ABCDEFG')).toBeNull();
+    expect(parseGameCodeFromScanPayload('quizapp://join/ABC2345')).toBeNull();
+    expect(parseGameCodeFromScanPayload('ABC2345')).toBeNull();
+  });
+
+  it('returns null for ambiguous chars not in game alphabet', () => {
+    expect(parseGameCodeFromScanPayload('quizapp://join/ABC12O')).toBeNull();
+    expect(parseGameCodeFromScanPayload('ABC12O')).toBeNull();
   });
 
   it('returns null for unrelated string', () => {
-    expect(parseQRDeepLink('not a qr code')).toBeNull();
+    expect(parseGameCodeFromScanPayload('not a qr code')).toBeNull();
   });
 });

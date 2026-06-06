@@ -1,34 +1,17 @@
-// Tests for the score calculation logic in ResultScreen.handleNext
+// Tests for the round-scoring logic used by ResultScreen.handleNext.
 import { Player, Turn, PlayerAnswer } from '../types';
+import { pickWinner, resolveAnswers, earnedForPlayer } from '../utils/scoring';
 
-const WIN_SCORE = 15;
-
-function resolveAnswers(turn: Turn): Record<string, PlayerAnswer> {
-  const resolved = { ...turn.answers };
-  for (const [pid, answer] of Object.entries(turn.answers)) {
-    if (answer.stolenFrom) {
-      const target = turn.answers[answer.stolenFrom];
-      if (target) {
-        resolved[pid] = { ...answer, answerIndex: target.answerIndex, isCorrect: target.isCorrect };
-      }
-    }
-  }
-  return resolved;
-}
-
+// Wraps the real per-player scoring so these tests exercise shipped logic —
+// no duplicated formula that can silently drift from the implementation.
 function calcUpdatedPlayers(
   players: Record<string, Player>,
   turn: Turn,
 ): Record<string, Player> {
-  const points = turn.selectedPoints ?? 1;
   const resolved = resolveAnswers(turn);
   const updated: Record<string, Player> = {};
   for (const [id, p] of Object.entries(players)) {
-    const answer = resolved[id];
-    const isCorrect = answer?.isCorrect ?? false;
-    const hasDouble = turn.activeHelps?.[id]?.double;
-    const earned = isCorrect ? (hasDouble ? points * 2 : points) : 0;
-    updated[id] = { ...p, score: p.score + earned };
+    updated[id] = { ...p, score: p.score + earnedForPlayer(turn, resolved, id) };
   }
   return updated;
 }
@@ -99,6 +82,36 @@ describe('score calculation', () => {
     expect(updated['p1'].score).toBe(0);
   });
 
+  it('caps points to 1 when 50/50 is used on a correct answer', () => {
+    const players = { p1: makePlayer('p1', 0) };
+    const turn = makeTurn({
+      selectedPoints: 3,
+      answers: { p1: makeAnswer(true) },
+      activeHelps: { p1: { fifty: true } },
+    });
+    expect(calcUpdatedPlayers(players, turn)['p1'].score).toBe(1);
+  });
+
+  it('50/50 + Double on a correct answer scores 2 (capped base, then doubled)', () => {
+    const players = { p1: makePlayer('p1', 0) };
+    const turn = makeTurn({
+      selectedPoints: 3,
+      answers: { p1: makeAnswer(true) },
+      activeHelps: { p1: { fifty: true, double: true } },
+    });
+    expect(calcUpdatedPlayers(players, turn)['p1'].score).toBe(2);
+  });
+
+  it('50/50 awards nothing for a wrong answer', () => {
+    const players = { p1: makePlayer('p1', 5) };
+    const turn = makeTurn({
+      selectedPoints: 3,
+      answers: { p1: makeAnswer(false) },
+      activeHelps: { p1: { fifty: true } },
+    });
+    expect(calcUpdatedPlayers(players, turn)['p1'].score).toBe(5);
+  });
+
   it('resolves steal correctly in score calc', () => {
     const players = { p1: makePlayer('p1', 0), p2: makePlayer('p2', 0) };
     // p2 answered correctly; p1 steals from p2
@@ -114,15 +127,37 @@ describe('score calculation', () => {
     const players = { p1: makePlayer('p1', 14) };
     const turn = makeTurn({ selectedPoints: 1, answers: { p1: makeAnswer(true) } });
     const updated = calcUpdatedPlayers(players, turn);
-    const winner = Object.values(updated).find((p) => p.score >= WIN_SCORE);
-    expect(winner?.id).toBe('p1');
+    expect(pickWinner(Object.values(updated))?.id).toBe('p1');
   });
 
   it('no winner when score is below WIN_SCORE', () => {
     const players = { p1: makePlayer('p1', 13) };
     const turn = makeTurn({ selectedPoints: 1, answers: { p1: makeAnswer(true) } });
     const updated = calcUpdatedPlayers(players, turn);
-    const winner = Object.values(updated).find((p) => p.score >= WIN_SCORE);
-    expect(winner).toBeUndefined();
+    expect(pickWinner(Object.values(updated))).toBeNull();
+  });
+});
+
+describe('pickWinner (tie / multi-winner handling — H1)', () => {
+  it('returns null when nobody has reached WIN_SCORE', () => {
+    expect(pickWinner([makePlayer('a', 14), makePlayer('b', 10)])).toBeNull();
+  });
+
+  it('returns the only qualifying player', () => {
+    expect(pickWinner([makePlayer('a', 9), makePlayer('b', 15)])?.id).toBe('b');
+  });
+
+  it('picks the highest scorer when several cross WIN_SCORE in one round', () => {
+    // `a` joined first (would win under the old `.find()`), but `b` scored more
+    const a = { ...makePlayer('a', 16), joinedAt: 1 };
+    const b = { ...makePlayer('b', 18), joinedAt: 2 };
+    expect(pickWinner([a, b])?.id).toBe('b');
+  });
+
+  it('breaks a score tie by earliest joiner', () => {
+    const late = { ...makePlayer('late', 17), joinedAt: 200 };
+    const early = { ...makePlayer('early', 17), joinedAt: 100 };
+    // later-joined passed first to prove array order does not decide it
+    expect(pickWinner([late, early])?.id).toBe('early');
   });
 });

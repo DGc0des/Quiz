@@ -3,7 +3,9 @@
     "allow": [
       "Bash(npm info *)",
       "Read(//private/tmp/quiz/project/**)",
-      "Bash(npx jest *)"
+      "Bash(npx jest *)",
+      "Bash(npx tsc *)",
+      "Bash(npm test *)"
     ]
   }
 }

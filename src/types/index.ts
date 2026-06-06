@@ -65,6 +65,12 @@ export interface Game {
   winnerId: string | null;
   rematchGameId: string | null;
   usedQuestionIds: string[];
+  /**
+   * Optimistic-concurrency counter. Bumped on every write via `updateGame`.
+   * Guards full-document writes so concurrent clients never clobber each
+   * other (see src/utils/updateGame.ts). New games start at 0.
+   */
+  version: number;
 }
 
 export type RootStackParamList = {

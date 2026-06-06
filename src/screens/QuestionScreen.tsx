@@ -7,17 +7,21 @@ import {
   ScrollView,
   Animated,
   Easing,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { supabase } from '../config/supabase';
 import { useGame } from '../hooks/useGame';
 import { useTimer } from '../hooks/useTimer';
 import { getQuestionById } from '../data/questions';
-import { RootStackParamList, Game } from '../types';
+import { leaveGame } from '../utils/leaveGame';
+import { updateGame } from '../utils/updateGame';
+import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
+import { RootStackParamList } from '../types';
 import { C, F, SHADOW, CATEGORY_META } from '../theme';
 import { Blobs } from '../components/Blobs';
 import { Avatar } from '../components/Avatar';
+import { ScoreRow } from '../components/ScoreRow';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Question'>;
 
@@ -44,6 +48,8 @@ export default function QuestionScreen({ route, navigation }: Props) {
   const [shuffledIndices, setShuffledIndices] = useState<number[]>([0, 1, 2, 3]);
   const timerFired = useRef(false);
 
+  useGamePresence(gameId, playerId, game ?? null);
+
   const player = game?.players[playerId];
   const canFifty = !(player?.usedHelps?.fifty ?? false) && visibleOptions === null;
   const canSteal = !(player?.usedHelps?.steal ?? false) && stealTargetId === null && !stealMode;
@@ -65,52 +71,96 @@ export default function QuestionScreen({ route, navigation }: Props) {
   useEffect(() => {
     if (!game) return;
     if (game.status === 'reviewing') navigation.replace('Result', { gameId, playerId });
+    if (game.status === 'picking') navigation.replace('Turn', { gameId, playerId });
     if (game.status === 'finished') {
+      if (!game.winnerId) {
+        navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+        return;
+      }
       const isWinner = game.winnerId === playerId;
       navigation.replace(isWinner ? 'Winner' : 'Loser', { gameId, playerId });
     }
   }, [game?.status]);
 
-  const checkAndAdvance = async () => {
-    const { data: row } = await supabase.from('games').select('data').eq('id', gameId).single();
-    if (!row) return;
-    const freshGame = row.data as Game;
-    if (!freshGame.currentTurn || freshGame.status !== 'question') return;
-    const playerCount = Object.keys(freshGame.players).length;
-    const answerCount = Object.keys(freshGame.currentTurn.answers).length;
-    if (answerCount >= playerCount) {
-      await supabase.from('games').update({
-        data: {
-          ...freshGame,
-          status: 'reviewing',
-          currentTurn: { ...freshGame.currentTurn, status: 'reviewing' },
+  const handleLeave = () => {
+    if (!game) return;
+    Alert.alert(
+      'Έξοδος από το παιχνίδι;',
+      'Αν φύγεις, η θέση σου χάνεται.',
+      [
+        { text: 'Ακύρωση', style: 'cancel' },
+        {
+          text: 'Έξοδος',
+          style: 'destructive',
+          onPress: async () => {
+            await leaveGame(gameId, playerId, game);
+            leavePresence(gameId);
+            navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+          },
         },
-      }).eq('id', gameId);
-      // Navigate immediately — don't rely on realtime echo for the writer
+      ],
+    );
+  };
+
+  // Record this player's answer and, if everyone is now in, flip the turn to
+  // reviewing — all in one version-guarded write so a concurrent answer/help
+  // can never be clobbered.
+  const submitAnswer = async (index: number | null) => {
+    if (!question) return;
+    const correctIndex = question.correctIndex;
+    const result = await updateGame(
+      gameId,
+      (g) => {
+        const ct = g.currentTurn;
+        if (!ct || g.status !== 'question') return null;
+        if (playerId in ct.answers) return null; // already answered
+        const answers = {
+          ...ct.answers,
+          [playerId]: {
+            playerId,
+            answerIndex: index,
+            isCorrect: index === correctIndex,
+            answeredAt: Date.now(),
+          },
+        };
+        const allAnswered = Object.keys(g.players).every((id) => id in answers);
+        return {
+          ...g,
+          status: allAnswered ? 'reviewing' : g.status,
+          currentTurn: { ...ct, answers, status: allAnswered ? 'reviewing' : ct.status },
+        };
+      },
+      { base: game },
+    );
+    if (result?.status === 'reviewing') {
       navigation.replace('Result', { gameId, playerId });
     }
   };
 
-  const submitAndAdvance = async (index: number | null) => {
-    if (!question) return;
-    await supabase.rpc('add_game_answer', {
-      p_game_id: gameId,
-      p_player_id: playerId,
-      p_answer: {
-        playerId,
-        answerIndex: index,
-        isCorrect: index === question.correctIndex,
-        answeredAt: Date.now(),
+  // On timer expiry for a player who already answered: advance only if everyone
+  // is in (e.g. the last answer was a steal that landed concurrently).
+  const advanceIfAllAnswered = async () => {
+    const result = await updateGame(
+      gameId,
+      (g) => {
+        const ct = g.currentTurn;
+        if (!ct || g.status !== 'question') return null;
+        const allAnswered = Object.keys(g.players).every((id) => id in ct.answers);
+        if (!allAnswered) return null;
+        return { ...g, status: 'reviewing', currentTurn: { ...ct, status: 'reviewing' } };
       },
-    });
-    await checkAndAdvance();
+      { base: game },
+    );
+    if (result?.status === 'reviewing') {
+      navigation.replace('Result', { gameId, playerId });
+    }
   };
 
   const handleAnswer = async (index: number) => {
     if (answered || !question) return;
     setAnswered(true);
     setSelectedIndex(index);
-    await submitAndAdvance(index);
+    await submitAnswer(index);
   };
 
   useEffect(() => {
@@ -120,49 +170,44 @@ export default function QuestionScreen({ route, navigation }: Props) {
       setStealMode(false);
       setSabotageMode(false);
       setAnswered(true);
-      submitAndAdvance(null);
+      submitAnswer(null);
     } else {
-      checkAndAdvance();
+      advanceIfAllAnswered();
     }
   }, [remaining]);
 
   const updateHelpInDB = async (helpType: 'fifty' | 'double') => {
-    const { data: row } = await supabase.from('games').select('data').eq('id', gameId).single();
-    if (!row) return;
-    const freshGame = row.data as Game;
-    if (!freshGame.currentTurn) return;
-
-    const prevPlayer = freshGame.players[playerId];
-    const updatedPlayers = {
-      ...freshGame.players,
-      [playerId]: {
-        ...prevPlayer,
-        usedHelps: {
-          fifty: prevPlayer.usedHelps?.fifty ?? false,
-          steal: prevPlayer.usedHelps?.steal ?? false,
-          double: prevPlayer.usedHelps?.double ?? false,
-          sabotage: prevPlayer.usedHelps?.sabotage ?? false,
-          [helpType]: true,
-        },
+    await updateGame(
+      gameId,
+      (g) => {
+        const ct = g.currentTurn;
+        if (!ct) return null;
+        const prevPlayer = g.players[playerId];
+        const players = {
+          ...g.players,
+          [playerId]: {
+            ...prevPlayer,
+            usedHelps: {
+              fifty: prevPlayer.usedHelps?.fifty ?? false,
+              steal: prevPlayer.usedHelps?.steal ?? false,
+              double: prevPlayer.usedHelps?.double ?? false,
+              sabotage: prevPlayer.usedHelps?.sabotage ?? false,
+              [helpType]: true,
+            },
+          },
+        };
+        const activeHelps = {
+          ...(ct.activeHelps ?? {}),
+          [playerId]: {
+            ...(ct.activeHelps?.[playerId] ?? {}),
+            ...(helpType === 'double' ? { double: true } : {}),
+            ...(helpType === 'fifty' ? { fifty: true } : {}),
+          },
+        };
+        return { ...g, players, currentTurn: { ...ct, activeHelps } };
       },
-    };
-
-    const activeHelps = {
-      ...(freshGame.currentTurn.activeHelps ?? {}),
-      [playerId]: {
-        ...(freshGame.currentTurn.activeHelps?.[playerId] ?? {}),
-        ...(helpType === 'double' ? { double: true as const } : {}),
-        ...(helpType === 'fifty' ? { fifty: true as const } : {}),
-      },
-    };
-
-    await supabase.from('games').update({
-      data: {
-        ...freshGame,
-        players: updatedPlayers,
-        currentTurn: { ...freshGame.currentTurn, activeHelps },
-      },
-    }).eq('id', gameId);
+      { base: game },
+    );
   };
 
   const handleFifty = async () => {
@@ -189,52 +234,48 @@ export default function QuestionScreen({ route, navigation }: Props) {
     setStealTargetId(targetId);
     setAnswered(true);
 
-    await supabase.rpc('add_game_answer', {
-      p_game_id: gameId,
-      p_player_id: playerId,
-      p_answer: {
-        playerId,
-        answerIndex: null,
-        isCorrect: false,
-        answeredAt: Date.now(),
-        stolenFrom: targetId,
+    const result = await updateGame(
+      gameId,
+      (g) => {
+        const ct = g.currentTurn;
+        if (!ct || g.status !== 'question') return null;
+        if (playerId in ct.answers) return null; // already answered
+        const prevPlayer = g.players[playerId];
+        const players = {
+          ...g.players,
+          [playerId]: {
+            ...prevPlayer,
+            usedHelps: {
+              fifty: prevPlayer.usedHelps?.fifty ?? false,
+              steal: true,
+              double: prevPlayer.usedHelps?.double ?? false,
+              sabotage: prevPlayer.usedHelps?.sabotage ?? false,
+            },
+          },
+        };
+        const answers = {
+          ...ct.answers,
+          [playerId]: {
+            playerId,
+            answerIndex: null,
+            isCorrect: false,
+            answeredAt: Date.now(),
+            stolenFrom: targetId,
+          },
+        };
+        const allAnswered = Object.keys(players).every((id) => id in answers);
+        return {
+          ...g,
+          players,
+          status: allAnswered ? 'reviewing' : g.status,
+          currentTurn: { ...ct, answers, status: allAnswered ? 'reviewing' : ct.status },
+        };
       },
-    });
-
-    const { data: row } = await supabase.from('games').select('data').eq('id', gameId).single();
-    if (!row) return;
-    const freshGame = row.data as Game;
-    if (!freshGame.currentTurn || freshGame.status !== 'question') return;
-
-    const prevPlayer = freshGame.players[playerId];
-    const updatedPlayers = {
-      ...freshGame.players,
-      [playerId]: {
-        ...prevPlayer,
-        usedHelps: {
-          fifty: prevPlayer.usedHelps?.fifty ?? false,
-          steal: true,
-          double: prevPlayer.usedHelps?.double ?? false,
-          sabotage: prevPlayer.usedHelps?.sabotage ?? false,
-        },
-      },
-    };
-
-    const playerCount = Object.keys(freshGame.players).length;
-    const answerCount = Object.keys(freshGame.currentTurn.answers).length;
-    const shouldAdvance = answerCount >= playerCount;
-
-    await supabase.from('games').update({
-      data: {
-        ...freshGame,
-        players: updatedPlayers,
-        ...(shouldAdvance ? { status: 'reviewing' } : {}),
-        currentTurn: {
-          ...freshGame.currentTurn,
-          ...(shouldAdvance ? { status: 'reviewing' } : {}),
-        },
-      },
-    }).eq('id', gameId);
+      { base: game },
+    );
+    if (result?.status === 'reviewing') {
+      navigation.replace('Result', { gameId, playerId });
+    }
   };
 
   const handleSabotagePress = () => {
@@ -246,40 +287,35 @@ export default function QuestionScreen({ route, navigation }: Props) {
     setSabotageMode(false);
     setSabotageActivated(true);
 
-    const { data: row } = await supabase.from('games').select('data').eq('id', gameId).single();
-    if (!row) return;
-    const freshGame = row.data as Game;
-    if (!freshGame.currentTurn) return;
-
-    const prevPlayer = freshGame.players[playerId];
-    const updatedPlayers = {
-      ...freshGame.players,
-      [playerId]: {
-        ...prevPlayer,
-        usedHelps: {
-          fifty: prevPlayer.usedHelps?.fifty ?? false,
-          steal: prevPlayer.usedHelps?.steal ?? false,
-          double: prevPlayer.usedHelps?.double ?? false,
-          sabotage: true,
-        },
+    await updateGame(
+      gameId,
+      (g) => {
+        const ct = g.currentTurn;
+        if (!ct) return null;
+        const prevPlayer = g.players[playerId];
+        const players = {
+          ...g.players,
+          [playerId]: {
+            ...prevPlayer,
+            usedHelps: {
+              fifty: prevPlayer.usedHelps?.fifty ?? false,
+              steal: prevPlayer.usedHelps?.steal ?? false,
+              double: prevPlayer.usedHelps?.double ?? false,
+              sabotage: true,
+            },
+          },
+        };
+        const activeHelps = {
+          ...(ct.activeHelps ?? {}),
+          [playerId]: {
+            ...(ct.activeHelps?.[playerId] ?? {}),
+            sabotage: targetId,
+          },
+        };
+        return { ...g, players, currentTurn: { ...ct, activeHelps } };
       },
-    };
-
-    const activeHelps = {
-      ...(freshGame.currentTurn.activeHelps ?? {}),
-      [playerId]: {
-        ...(freshGame.currentTurn.activeHelps?.[playerId] ?? {}),
-        sabotage: targetId,
-      },
-    };
-
-    await supabase.from('games').update({
-      data: {
-        ...freshGame,
-        players: updatedPlayers,
-        currentTurn: { ...freshGame.currentTurn, activeHelps },
-      },
-    }).eq('id', gameId);
+      { base: game },
+    );
   };
 
   // ── Animated refs ──
@@ -426,9 +462,21 @@ export default function QuestionScreen({ route, navigation }: Props) {
     { left: '46%', bottom: '60%' },
   ] as const;
 
+  if (!game) return null;
+
   return (
     <View style={[s.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <Blobs />
+      <TouchableOpacity style={s.leaveBtn} onPress={handleLeave} activeOpacity={0.7}>
+        <Text style={s.leaveBtnText}>×</Text>
+      </TouchableOpacity>
+      <View style={s.scoreRowWrap}>
+        <ScoreRow
+          players={Object.values(game.players)}
+          selfId={playerId}
+          activePlayerId={turn?.activePlayerId}
+        />
+      </View>
 
       {/* ── STEAL OVERLAY: flying fist + impact ring ── */}
       {stealTargetId && (
@@ -919,6 +967,27 @@ export default function QuestionScreen({ route, navigation }: Props) {
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
+  scoreRowWrap: { paddingHorizontal: 24, paddingTop: 8 },
+  leaveBtn: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 999,
+    backgroundColor: C.surface,
+    borderWidth: 1.5,
+    borderColor: C.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOW.card,
+  },
+  leaveBtnText: {
+    fontSize: 20,
+    color: C.inkSoft,
+    marginTop: -1,
+  },
   container: { flex: 1, paddingHorizontal: 20, paddingTop: 18, gap: 10 },
   scrollBody: { flex: 1 },
   scrollContent: { gap: 12, paddingBottom: 24 },

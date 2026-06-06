@@ -5,33 +5,22 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { supabase } from '../config/supabase';
 import { useGame } from '../hooks/useGame';
 import { getQuestionById } from '../data/questions';
-import { RootStackParamList, Player, Game, Turn, PlayerAnswer } from '../types';
+import { leaveGame } from '../utils/leaveGame';
+import { updateGame } from '../utils/updateGame';
+import { pickWinner, resolveAnswers, earnedForPlayer } from '../utils/scoring';
+import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
+import { RootStackParamList, Player } from '../types';
 import { C, F, SHADOW } from '../theme';
 import { Blobs } from '../components/Blobs';
 import { Avatar } from '../components/Avatar';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Result'>;
-
-function resolveAnswers(turn: Turn): Record<string, PlayerAnswer> {
-  const resolved = { ...turn.answers };
-  for (const [pid, answer] of Object.entries(turn.answers)) {
-    if (answer.stolenFrom) {
-      const target = turn.answers[answer.stolenFrom];
-      if (target) {
-        resolved[pid] = { ...answer, answerIndex: target.answerIndex, isCorrect: target.isCorrect };
-      }
-    }
-  }
-  return resolved;
-}
-
-const WIN_SCORE = 15;
 
 export default function ResultScreen({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
@@ -40,59 +29,89 @@ export default function ResultScreen({ route, navigation }: Props) {
   const isHost = game?.players[playerId]?.isHost ?? false;
   const advancedRef = useRef(false);
 
+  useGamePresence(gameId, playerId, game ?? null);
+
   useEffect(() => {
     if (!game) return;
     if (game.status === 'picking') navigation.replace('Turn', { gameId, playerId });
     if (game.status === 'finished') {
+      if (!game.winnerId) {
+        navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+        return;
+      }
       const isWinner = game.winnerId === playerId;
       navigation.replace(isWinner ? 'Winner' : 'Loser', { gameId, playerId });
     }
   }, [game?.status]);
 
+  const handleLeave = () => {
+    if (!game) return;
+    Alert.alert(
+      'Έξοδος από το παιχνίδι;',
+      'Αν φύγεις, η θέση σου χάνεται.',
+      [
+        { text: 'Ακύρωση', style: 'cancel' },
+        {
+          text: 'Έξοδος',
+          style: 'destructive',
+          onPress: async () => {
+            await leaveGame(gameId, playerId, game);
+            leavePresence(gameId);
+            navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+          },
+        },
+      ],
+    );
+  };
+
   const handleNext = async () => {
     if (!game || !game.currentTurn || advancedRef.current) return;
     advancedRef.current = true;
 
-    const turn = game.currentTurn;
-    const points = turn.selectedPoints ?? 1;
-    const resolved = resolveAnswers(turn);
+    const updated = await updateGame(
+      gameId,
+      (g) => {
+        const turn = g.currentTurn;
+        if (!turn || g.status !== 'reviewing') return null;
+        const resolved = resolveAnswers(turn);
 
-    const updatedPlayers: Record<string, Player> = {};
-    for (const [id, p] of Object.entries(game.players)) {
-      const answer = resolved[id];
-      const isCorrect = answer?.isCorrect ?? false;
-      const hasDouble = turn.activeHelps?.[id]?.double;
-      const hasFifty = turn.activeHelps?.[id]?.fifty;
-      const effectivePoints = hasFifty ? 1 : points;
-      const earned = isCorrect ? (hasDouble ? effectivePoints * 2 : effectivePoints) : 0;
-      updatedPlayers[id] = { ...p, score: p.score + earned };
+        const updatedPlayers: Record<string, Player> = {};
+        for (const [id, p] of Object.entries(g.players)) {
+          updatedPlayers[id] = { ...p, score: p.score + earnedForPlayer(turn, resolved, id) };
+        }
+
+        const winner = pickWinner(Object.values(updatedPlayers));
+        const nextIndex = (g.currentTurnIndex + 1) % g.turnOrder.length;
+        const nextActiveId = g.turnOrder[nextIndex];
+
+        return {
+          ...g,
+          players: updatedPlayers,
+          winnerId: winner?.id ?? null,
+          status: winner ? 'finished' : 'picking',
+          currentTurnIndex: nextIndex,
+          currentTurn: winner
+            ? null
+            : {
+                turnNumber: (turn.turnNumber ?? 0) + 1,
+                activePlayerId: nextActiveId,
+                selectedPoints: null,
+                selectedCategory: null,
+                questionId: null,
+                answers: {},
+                timerStartedAt: null,
+                status: 'picking',
+                activeHelps: {},
+              },
+        };
+      },
+      { base: game },
+    );
+
+    if (!updated) {
+      advancedRef.current = false;
+      return;
     }
-
-    const winner = Object.values(updatedPlayers).find((p) => p.score >= WIN_SCORE);
-    const nextIndex = (game.currentTurnIndex + 1) % game.turnOrder.length;
-    const nextActiveId = game.turnOrder[nextIndex];
-
-    const updated: Game = {
-      ...game,
-      players: updatedPlayers,
-      winnerId: winner?.id ?? null,
-      status: winner ? 'finished' : 'picking',
-      currentTurnIndex: nextIndex,
-      currentTurn: winner
-        ? null
-        : {
-            turnNumber: (turn.turnNumber ?? 0) + 1,
-            activePlayerId: nextActiveId,
-            selectedPoints: null,
-            selectedCategory: null,
-            questionId: null,
-            answers: {},
-            timerStartedAt: null,
-            status: 'picking',
-            activeHelps: {},
-          },
-    };
-    await supabase.from('games').update({ data: updated }).eq('id', gameId);
 
     // Navigate immediately — don't rely on realtime echo, which may not fire for the writer
     if (updated.winnerId) {
@@ -107,14 +126,24 @@ export default function ResultScreen({ route, navigation }: Props) {
 
   const turn = game.currentTurn;
   const question = turn.questionId ? getQuestionById(turn.questionId) : null;
-  const points = turn.selectedPoints ?? 1;
   const resolved = resolveAnswers(turn);
-  const sortedPlayers = Object.values(game.players).sort((a, b) => b.score - a.score);
+
+  const earnedMap: Record<string, number> = {};
+  for (const id of Object.keys(game.players)) {
+    earnedMap[id] = earnedForPlayer(turn, resolved, id);
+  }
+
+  const sortedPlayers = Object.values(game.players).sort(
+    (a, b) => (b.score + earnedMap[b.id]) - (a.score + earnedMap[a.id])
+  );
   const turnNumber = turn.turnNumber ?? 1;
 
   return (
     <View style={[s.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <Blobs />
+      <TouchableOpacity style={s.leaveBtn} onPress={handleLeave} activeOpacity={0.7}>
+        <Text style={s.leaveBtnText}>×</Text>
+      </TouchableOpacity>
       <ScrollView contentContainerStyle={s.scroll}>
         <Text style={s.eyebrow}>Γύρος {turnNumber}</Text>
         <Text style={s.title}>Αποτελέσματα Γύρου</Text>
@@ -147,8 +176,7 @@ export default function ResultScreen({ route, navigation }: Props) {
           const hasFifty = turn.activeHelps?.[player.id]?.fifty;
           const stolenFrom = rawAnswer?.stolenFrom;
           const stealTargetName = stolenFrom ? game.players[stolenFrom]?.name : undefined;
-          const effectivePoints = hasFifty ? 1 : points;
-          const earned = isCorrect ? (hasDouble ? effectivePoints * 2 : effectivePoints) : 0;
+          const earned = earnedMap[player.id] ?? 0;
           const noAnswer = rawAnswer === undefined;
 
           let verdictText: string;
@@ -210,6 +238,26 @@ export default function ResultScreen({ route, navigation }: Props) {
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
+  leaveBtn: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 999,
+    backgroundColor: C.surface,
+    borderWidth: 1.5,
+    borderColor: C.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOW.card,
+  },
+  leaveBtnText: {
+    fontSize: 20,
+    color: C.inkSoft,
+    marginTop: -1,
+  },
   scroll: { padding: 20, paddingTop: 22, gap: 14 },
 
   eyebrow: {

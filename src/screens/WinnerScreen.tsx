@@ -12,7 +12,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../config/supabase';
 import { generateGameId } from '../utils/gameId';
+import { updateGame } from '../utils/updateGame';
 import { useGame } from '../hooks/useGame';
+import { leavePresence } from '../hooks/useGamePresence';
 import { RootStackParamList, Game } from '../types';
 import { C, F, SHADOW } from '../theme';
 import { Blobs } from '../components/Blobs';
@@ -113,6 +115,7 @@ export default function WinnerScreen({ route, navigation }: Props) {
   useEffect(() => {
     if (!game?.rematchGameId || navigatedRef.current) return;
     navigatedRef.current = true;
+    leavePresence(gameId); // tear down the finished game's presence channel
     navigation.replace('Lobby', { gameId: game.rematchGameId, playerId });
   }, [game?.rematchGameId]);
 
@@ -139,6 +142,7 @@ export default function WinnerScreen({ route, navigation }: Props) {
       winnerId: null,
       rematchGameId: null,
       usedQuestionIds: game.usedQuestionIds ?? [],
+      version: 0,
     };
 
     const { error } = await supabase.from('games').insert({
@@ -152,9 +156,7 @@ export default function WinnerScreen({ route, navigation }: Props) {
     }
 
     // Signal all players to follow by setting rematchGameId on the old game
-    await supabase.from('games').update({
-      data: { ...game, rematchGameId: newGameId },
-    }).eq('id', gameId);
+    await updateGame(gameId, (g) => (g.rematchGameId ? null : { ...g, rematchGameId: newGameId }), { base: game });
   };
 
   return (
