@@ -43,6 +43,10 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
     ).start(() => {
       if (!isHost) return;
       setTimeout(() => {
+        // `updateGame` primes the local cache, so the status-watching effect
+        // below navigates to Turn on its own (no reliance on the realtime echo,
+        // which may not reach the writer — fatal in solo play where the host
+        // drives every transition).
         updateGame(
           gameId,
           (g) => {
@@ -58,7 +62,7 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
                 selectedCategory: null,
                 questionId: null,
                 answers: {},
-                timerStartedAt: null,
+                timerStartedAt: Date.now(),
                 status: 'picking',
               },
             };
@@ -104,7 +108,7 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
   return (
     <View style={[s.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <Blobs />
-      <TouchableOpacity style={s.leaveBtn} onPress={handleLeave} activeOpacity={0.7}>
+      <TouchableOpacity style={[s.leaveBtn, { top: insets.top + 8 }]} onPress={handleLeave} activeOpacity={0.7}>
         <Text style={s.leaveBtnText}>×</Text>
       </TouchableOpacity>
       <View style={s.scoreRowWrap}>

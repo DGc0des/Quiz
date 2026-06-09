@@ -108,7 +108,7 @@ export default function QuestionScreen({ route, navigation }: Props) {
   const submitAnswer = async (index: number | null) => {
     if (!question) return;
     const correctIndex = question.correctIndex;
-    const result = await updateGame(
+    await updateGame(
       gameId,
       (g) => {
         const ct = g.currentTurn;
@@ -127,33 +127,42 @@ export default function QuestionScreen({ route, navigation }: Props) {
         return {
           ...g,
           status: allAnswered ? 'reviewing' : g.status,
-          currentTurn: { ...ct, answers, status: allAnswered ? 'reviewing' : ct.status },
+          currentTurn: {
+            ...ct,
+            answers,
+            status: allAnswered ? 'reviewing' : ct.status,
+            // Re-stamp on the flip to reviewing so ResultScreen's review timer
+            // counts from now (timerStartedAt is reused across phases).
+            timerStartedAt: allAnswered ? Date.now() : ct.timerStartedAt,
+          },
         };
       },
       { base: game },
     );
-    if (result?.status === 'reviewing') {
-      navigation.replace('Result', { gameId, playerId });
-    }
+    // No explicit navigation: `updateGame` primes the cache, so the
+    // status-watching effect above moves us to Result when the turn flips to
+    // 'reviewing'.
   };
 
   // On timer expiry for a player who already answered: advance only if everyone
   // is in (e.g. the last answer was a steal that landed concurrently).
   const advanceIfAllAnswered = async () => {
-    const result = await updateGame(
+    await updateGame(
       gameId,
       (g) => {
         const ct = g.currentTurn;
         if (!ct || g.status !== 'question') return null;
         const allAnswered = Object.keys(g.players).every((id) => id in ct.answers);
         if (!allAnswered) return null;
-        return { ...g, status: 'reviewing', currentTurn: { ...ct, status: 'reviewing' } };
+        return {
+          ...g,
+          status: 'reviewing',
+          currentTurn: { ...ct, status: 'reviewing', timerStartedAt: Date.now() },
+        };
       },
       { base: game },
     );
-    if (result?.status === 'reviewing') {
-      navigation.replace('Result', { gameId, playerId });
-    }
+    // Navigation handled by the status-watching effect (see submitAnswer).
   };
 
   const handleAnswer = async (index: number) => {
@@ -234,7 +243,7 @@ export default function QuestionScreen({ route, navigation }: Props) {
     setStealTargetId(targetId);
     setAnswered(true);
 
-    const result = await updateGame(
+    await updateGame(
       gameId,
       (g) => {
         const ct = g.currentTurn;
@@ -268,14 +277,17 @@ export default function QuestionScreen({ route, navigation }: Props) {
           ...g,
           players,
           status: allAnswered ? 'reviewing' : g.status,
-          currentTurn: { ...ct, answers, status: allAnswered ? 'reviewing' : ct.status },
+          currentTurn: {
+            ...ct,
+            answers,
+            status: allAnswered ? 'reviewing' : ct.status,
+            timerStartedAt: allAnswered ? Date.now() : ct.timerStartedAt,
+          },
         };
       },
       { base: game },
     );
-    if (result?.status === 'reviewing') {
-      navigation.replace('Result', { gameId, playerId });
-    }
+    // Navigation handled by the status-watching effect (see submitAnswer).
   };
 
   const handleSabotagePress = () => {
@@ -467,7 +479,7 @@ export default function QuestionScreen({ route, navigation }: Props) {
   return (
     <View style={[s.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <Blobs />
-      <TouchableOpacity style={s.leaveBtn} onPress={handleLeave} activeOpacity={0.7}>
+      <TouchableOpacity style={[s.leaveBtn, { top: insets.top + 8 }]} onPress={handleLeave} activeOpacity={0.7}>
         <Text style={s.leaveBtnText}>×</Text>
       </TouchableOpacity>
       <View style={s.scoreRowWrap}>
@@ -711,7 +723,7 @@ export default function QuestionScreen({ route, navigation }: Props) {
 
         {/* Question card */}
         <View style={s.questionCard}>
-          <Text style={s.questionEyebrow}>Ερώτηση 1 / 1</Text>
+          <Text style={s.questionEyebrow}>Γύρος {turn?.turnNumber ?? 1}</Text>
           <Text style={s.questionText}>{question.text}</Text>
         </View>
 

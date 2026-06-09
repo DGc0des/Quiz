@@ -160,4 +160,18 @@ describe('pickWinner (tie / multi-winner handling — H1)', () => {
     // later-joined passed first to prove array order does not decide it
     expect(pickWinner([late, early])?.id).toBe('early');
   });
+
+  it('honours a custom (lower) target score', () => {
+    // 11 wins at target 10, but not at the default 15
+    const players = [makePlayer('a', 11)];
+    expect(pickWinner(players, 10)?.id).toBe('a');
+    expect(pickWinner(players, 15)).toBeNull();
+  });
+
+  it('honours a custom (higher) target score', () => {
+    // 18 already wins at default 15, but not yet at target 21
+    const players = [makePlayer('a', 18)];
+    expect(pickWinner(players)?.id).toBe('a');
+    expect(pickWinner(players, 21)).toBeNull();
+  });
 });

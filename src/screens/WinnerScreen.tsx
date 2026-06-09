@@ -13,6 +13,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../config/supabase';
 import { generateGameId } from '../utils/gameId';
 import { updateGame } from '../utils/updateGame';
+import { WIN_SCORE } from '../utils/scoring';
 import { useGame } from '../hooks/useGame';
 import { leavePresence } from '../hooks/useGamePresence';
 import { RootStackParamList, Game } from '../types';
@@ -141,7 +142,11 @@ export default function WinnerScreen({ route, navigation }: Props) {
       createdAt: Date.now(),
       winnerId: null,
       rematchGameId: null,
-      usedQuestionIds: game.usedQuestionIds ?? [],
+      // Reset per rematch — carrying these over drains the question pool across
+      // a few rematches and eventually starves picking (see toSolve.md L7/L8).
+      // A rematch is a fresh game, so repeats from a prior game are fine.
+      usedQuestionIds: [],
+      winScore: game.winScore ?? WIN_SCORE,
       version: 0,
     };
 

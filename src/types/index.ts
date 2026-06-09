@@ -66,6 +66,12 @@ export interface Game {
   rematchGameId: string | null;
   usedQuestionIds: string[];
   /**
+   * Score a player must reach (or exceed) after a round to win. Chosen by the
+   * host in the lobby; defaults to `WIN_SCORE` (15). Read with `?? WIN_SCORE`
+   * so games created before this field existed still resolve a winner.
+   */
+  winScore: number;
+  /**
    * Optimistic-concurrency counter. Bumped on every write via `updateGame`.
    * Guards full-document writes so concurrent clients never clobber each
    * other (see src/utils/updateGame.ts). New games start at 0.

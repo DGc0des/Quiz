@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,15 +7,18 @@ import {
   FlatList,
   ActivityIndicator,
   Alert,
+  Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import QRCode from 'react-native-qrcode-svg';
+import * as Clipboard from 'expo-clipboard';
 import { useGame } from '../hooks/useGame';
 import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
 import { shuffle } from '../utils/shuffle';
 import { leaveGame } from '../utils/leaveGame';
 import { updateGame } from '../utils/updateGame';
+import { WIN_SCORE, WIN_SCORE_OPTIONS } from '../utils/scoring';
 import { RootStackParamList, Player } from '../types';
 import { C, F, SHADOW } from '../theme';
 import { Blobs } from '../components/Blobs';
@@ -30,7 +33,23 @@ export default function LobbyScreen({ route, navigation }: Props) {
   const isHost = game?.players[playerId]?.isHost ?? false;
   const players = game ? Object.values(game.players).sort((a, b) => a.joinedAt - b.joinedAt) : [];
 
+  const deepLink = `quizapp://join/${gameId}`;
+  const [copied, setCopied] = useState(false);
+
   useGamePresence(gameId, playerId, game ?? null);
+
+  // Share / copy the invite — same pattern as CreateGameScreen.
+  const handleCopy = async () => {
+    await Clipboard.setStringAsync(deepLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleShare = async () => {
+    await Share.share({
+      message: `Έλα στο κουίζ μου! Κώδικας: ${gameId}\nή άνοιξε: ${deepLink}`,
+    });
+  };
 
   useEffect(() => {
     if (!game) return;
@@ -62,8 +81,22 @@ export default function LobbyScreen({ route, navigation }: Props) {
     );
   };
 
+  const winScore = game?.winScore ?? WIN_SCORE;
+
+  const handleSetWinScore = async (score: number) => {
+    if (!game || !isHost || winScore === score) return;
+    await updateGame(
+      gameId,
+      (g) => (g.status !== 'lobby' ? null : { ...g, winScore: score }),
+      { base: game },
+    );
+  };
+
   const handleStart = async () => {
     if (!game) return;
+    // `updateGame` primes the local cache on success, so the status-watching
+    // effect above navigates to TurnReveal without waiting for the realtime echo
+    // (which may never reach the writer).
     await updateGame(
       gameId,
       (g) => {
@@ -144,6 +177,36 @@ export default function LobbyScreen({ route, navigation }: Props) {
               />
             </View>
           </View>
+          <View style={s.shareRow}>
+            <TouchableOpacity style={s.shareBtn} activeOpacity={0.75} onPress={handleCopy}>
+              <Text style={s.shareBtnText}>{copied ? '✓ Αντιγράφηκε' : '📋 Αντιγραφή'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.shareBtn} activeOpacity={0.75} onPress={handleShare}>
+              <Text style={s.shareBtnText}>📤 Κοινοποίηση</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Target score — host picks, others see it read-only */}
+        <View style={[s.targetCard, SHADOW.card]}>
+          <Text style={s.cardEyebrow}>🎯 Όριο νίκης (βαθμοί)</Text>
+          <View style={s.segment}>
+            {WIN_SCORE_OPTIONS.map((opt) => {
+              const active = winScore === opt;
+              return (
+                <TouchableOpacity
+                  key={opt}
+                  style={[s.segmentBtn, active && s.segmentBtnActive]}
+                  activeOpacity={isHost ? 0.7 : 1}
+                  disabled={!isHost}
+                  onPress={() => handleSetWinScore(opt)}
+                >
+                  <Text style={[s.segmentText, active && s.segmentTextActive]}>{opt}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {!isHost && <Text style={s.targetHint}>Ορίζεται από τον δημιουργό</Text>}
         </View>
 
         {/* Players header row */}
@@ -305,6 +368,67 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: C.line,
+  },
+  shareRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 14,
+  },
+  shareBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: C.line,
+    backgroundColor: C.bg,
+    alignItems: 'center',
+  },
+  shareBtnText: {
+    fontFamily: F.sansBold,
+    fontSize: 13,
+    color: C.ink,
+  },
+
+  /* Target score selector */
+  targetCard: {
+    backgroundColor: C.surface,
+    borderWidth: 1.5,
+    borderColor: C.line,
+    borderRadius: 22,
+    padding: 16,
+    marginBottom: 20,
+  },
+  segment: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  segmentBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: C.line,
+    backgroundColor: C.bg,
+    alignItems: 'center',
+  },
+  segmentBtnActive: {
+    backgroundColor: C.primary,
+    borderColor: C.primaryDark,
+  },
+  segmentText: {
+    fontFamily: F.sansBold,
+    fontSize: 18,
+    color: C.ink,
+  },
+  segmentTextActive: {
+    color: C.primaryInk,
+  },
+  targetHint: {
+    fontFamily: F.sansMedium,
+    fontSize: 12,
+    color: C.inkMute,
+    marginTop: 8,
   },
 
   playersHeader: {

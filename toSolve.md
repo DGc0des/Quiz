@@ -94,3 +94,13 @@ The three listed "open" issues were resolved in code (ranking sorts by `score + 
 
 ### L6. Dead styles in `HomeScreen`
 `HomeScreen.tsx:146-161` defines `dots` / `dot` / `dotActive` styles that are never used. Remove.
+
+### L7. Silent no-op when a category is exhausted — **FIXED**
+**Was:** in `TurnScreen.handleSelectCategory`, if `pickQuestion` returned `null` for the chosen difficulty *and* all three fallbacks (category fully used up), the mutator returned `null` and `updateGame` silently no-op'd — the active player tapped a category and nothing happened, no error or feedback. More likely after a rematch since `usedQuestionIds` carries over. `autoPick` had the same flaw, except it would **stall the game** (the pick timer had already fired, so there was no retry).
+
+**Fix shipped:** `handleSelectCategory` now does an up-front availability check (the same difficulty + 1/2/3 fallback) and shows a Greek `Alert` ("Τελείωσαν οι ερωτήσεις… Διάλεξε άλλη κατηγορία.") instead of a silent no-op — needed because `updateGame` can't distinguish an exhaustion abort from a concurrency abort. `autoPick` now scans **all** categories from a random start so an exhausted random pick falls through to another category instead of stalling.
+
+### L8. Rematch inherited `usedQuestionIds` → pool drains across rematches — **FIXED**
+**Was:** `WinnerScreen.handleRematch` and `LoserScreen.handleRematch` created the rematch game with `usedQuestionIds: game.usedQuestionIds ?? []`, carrying the used set forward. Across 3–4 rematches (each burns 10+ questions) a category/difficulty combo empties out, and from then on picking silently fails / stalls (the L7 failure mode).
+
+**Fix shipped:** both rematch creators now reset `usedQuestionIds: []`. A rematch is a fresh game, so repeating a question that appeared in a *previous* game is acceptable and far better than starving the pool. (New-game creation in `CreateGameScreen` already started empty.) `CLAUDE.md`'s "Question selection" section updated to say the array resets on rematch.

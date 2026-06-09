@@ -13,6 +13,7 @@ import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
 import { supabase } from '../config/supabase';
 import { generateGameId } from '../utils/gameId';
+import { WIN_SCORE } from '../utils/scoring';
 import { RootStackParamList } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { C, F, SHADOW } from '../theme';
@@ -54,6 +55,7 @@ export default function CreateGameScreen({ route, navigation }: Props) {
           winnerId: null,
           rematchGameId: null,
           usedQuestionIds: [],
+          winScore: WIN_SCORE,
           version: 0,
         },
       });

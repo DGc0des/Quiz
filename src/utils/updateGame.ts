@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabase';
+import { primeGame } from '../hooks/useGame';
 import { Game } from '../types';
 
 const MAX_ATTEMPTS = 8;
@@ -62,7 +63,12 @@ export async function updateGame(
     const { data, error } = await query.select('data');
 
     if (error) throw error;
-    if (data && data.length > 0) return nextData; // won the race
+    if (data && data.length > 0) {
+      // Won the race — update the shared cache so every mounted screen sees the
+      // new state immediately (the realtime echo may lag or skip the writer).
+      primeGame(gameId, nextData);
+      return nextData;
+    }
 
     base = undefined; // lost the race — re-read and retry
   }

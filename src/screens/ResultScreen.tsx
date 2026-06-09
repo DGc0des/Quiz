@@ -10,10 +10,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useGame } from '../hooks/useGame';
+import { useTimer } from '../hooks/useTimer';
 import { getQuestionById } from '../data/questions';
 import { leaveGame } from '../utils/leaveGame';
 import { updateGame } from '../utils/updateGame';
-import { pickWinner, resolveAnswers, earnedForPlayer } from '../utils/scoring';
+import { pickWinner, resolveAnswers, earnedForPlayer, WIN_SCORE } from '../utils/scoring';
 import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
 import { RootStackParamList, Player } from '../types';
 import { C, F, SHADOW } from '../theme';
@@ -21,6 +22,9 @@ import { Blobs } from '../components/Blobs';
 import { Avatar } from '../components/Avatar';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Result'>;
+
+/** Seconds the results screen is shown before auto-advancing to the next turn. */
+const REVIEW_SECONDS = 90;
 
 export default function ResultScreen({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
@@ -30,6 +34,13 @@ export default function ResultScreen({ route, navigation }: Props) {
   const advancedRef = useRef(false);
 
   useGamePresence(gameId, playerId, game ?? null);
+
+  // Review-phase countdown. `timerStartedAt` is re-stamped when the turn flips
+  // to `reviewing` (in QuestionScreen), so it doubles as the review timer here.
+  // Older games may have it null → the timer stays full and never fires.
+  const reviewStartedAt =
+    game?.currentTurn?.status === 'reviewing' ? game.currentTurn.timerStartedAt ?? null : null;
+  const reviewRemaining = useTimer(REVIEW_SECONDS, reviewStartedAt);
 
   useEffect(() => {
     if (!game) return;
@@ -80,7 +91,7 @@ export default function ResultScreen({ route, navigation }: Props) {
           updatedPlayers[id] = { ...p, score: p.score + earnedForPlayer(turn, resolved, id) };
         }
 
-        const winner = pickWinner(Object.values(updatedPlayers));
+        const winner = pickWinner(Object.values(updatedPlayers), g.winScore ?? WIN_SCORE);
         const nextIndex = (g.currentTurnIndex + 1) % g.turnOrder.length;
         const nextActiveId = g.turnOrder[nextIndex];
 
@@ -99,7 +110,7 @@ export default function ResultScreen({ route, navigation }: Props) {
                 selectedCategory: null,
                 questionId: null,
                 answers: {},
-                timerStartedAt: null,
+                timerStartedAt: Date.now(),
                 status: 'picking',
                 activeHelps: {},
               },
@@ -112,15 +123,24 @@ export default function ResultScreen({ route, navigation }: Props) {
       advancedRef.current = false;
       return;
     }
-
-    // Navigate immediately — don't rely on realtime echo, which may not fire for the writer
-    if (updated.winnerId) {
-      const isWinner = updated.winnerId === playerId;
-      navigation.replace(isWinner ? 'Winner' : 'Loser', { gameId, playerId });
-    } else {
-      navigation.replace('Turn', { gameId, playerId });
-    }
+    // No explicit navigation: `updateGame` primes the local cache, so the
+    // status-watching effect above advances to Turn / Winner / Loser on its own.
   };
+
+  // Reset the one-shot guard whenever a new review phase begins.
+  useEffect(() => {
+    advancedRef.current = false;
+  }, [reviewStartedAt]);
+
+  // Auto-advance if nobody taps "Επόμενος Γύρος" in REVIEW_SECONDS. Any client
+  // may fire — `handleNext` is guarded by `updateGame` (version-checked, only
+  // the first write lands) plus `advancedRef`, so concurrent fires are safe.
+  // This also keeps the game moving if the host stalls or disconnects.
+  useEffect(() => {
+    if (reviewStartedAt === null || game?.status !== 'reviewing') return;
+    if (reviewRemaining > 0 || advancedRef.current) return;
+    handleNext();
+  }, [reviewRemaining, game?.status, reviewStartedAt]);
 
   if (!game || !game.currentTurn) return null;
 
@@ -141,7 +161,7 @@ export default function ResultScreen({ route, navigation }: Props) {
   return (
     <View style={[s.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <Blobs />
-      <TouchableOpacity style={s.leaveBtn} onPress={handleLeave} activeOpacity={0.7}>
+      <TouchableOpacity style={[s.leaveBtn, { top: insets.top + 8 }]} onPress={handleLeave} activeOpacity={0.7}>
         <Text style={s.leaveBtnText}>×</Text>
       </TouchableOpacity>
       <ScrollView contentContainerStyle={s.scroll}>
@@ -230,6 +250,10 @@ export default function ResultScreen({ route, navigation }: Props) {
           </TouchableOpacity>
         ) : (
           <Text style={s.waitMsg}>Αναμονή για τον επόμενο γύρο...</Text>
+        )}
+
+        {reviewStartedAt !== null && (
+          <Text style={s.autoAdvanceHint}>⏱ Αυτόματη συνέχεια σε {reviewRemaining}s</Text>
         )}
       </ScrollView>
     </View>
@@ -397,5 +421,12 @@ const s = StyleSheet.create({
     color: C.inkSoft,
     fontSize: 14,
     marginTop: 4,
+  },
+  autoAdvanceHint: {
+    textAlign: 'center',
+    fontFamily: F.sansMedium,
+    color: C.inkMute,
+    fontSize: 12,
+    marginTop: 2,
   },
 });

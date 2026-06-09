@@ -16,6 +16,18 @@ function notify(gameId: string, game: Game | null) {
   subscribers.get(gameId)?.forEach((cb) => cb(game));
 }
 
+/**
+ * Push a freshly-written game into the shared cache and notify every mounted
+ * screen synchronously. Called by `updateGame` right after a successful write so
+ * the writer's screens reflect the new `status` immediately — without waiting
+ * for the Supabase realtime echo, which may be delayed or never delivered to the
+ * client that did the write. This makes the status-driven navigation effects
+ * fire reliably (and avoids landing a freshly-navigated screen on stale state).
+ */
+export function primeGame(gameId: string, game: Game) {
+  notify(gameId, game);
+}
+
 function ensureChannel(gameId: string) {
   if (channels.has(gameId)) return;
   const channel = supabase

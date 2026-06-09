@@ -31,8 +31,11 @@ export default function AppNavigator() {
       screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: C.bg },
+        // Gentle cross-fade: every game-flow nav is a `replace` between screens
+        // that share the same background + statically-positioned blobs, so only
+        // the content dissolves. A slower ease keeps it from reading as a flash.
         animation: 'fade',
-        animationDuration: 150,
+        animationDuration: 280,
         animationTypeForReplace: 'push',
         gestureEnabled: false,
       }}

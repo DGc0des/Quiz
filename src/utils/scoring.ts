@@ -3,6 +3,9 @@ import { Player, Turn, PlayerAnswer } from '../types';
 /** First player to reach or exceed this after a round wins. */
 export const WIN_SCORE = 15;
 
+/** Selectable target scores the host can choose in the lobby. */
+export const WIN_SCORE_OPTIONS = [10, 15, 21] as const;
+
 /**
  * Resolve steal answers: a stealer inherits its target's `answerIndex` +
  * `isCorrect` (one level only — a target that itself stole is not followed).
