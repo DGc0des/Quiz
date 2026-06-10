@@ -31,7 +31,21 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
+
+# Claude / local tooling settings (per-user, not shared)
+.claude/settings.local.json
+
+# Internal dev docs & security notes (keep out of public repo)
+CLAUDE.md
+toSolve.md
+SECURITY_AUDIT.md
+
+# Scratch / working drafts of question content
+generated_Questions/
+test.md
+texnes_new_questions.md
 
 # typescript
 *.tsbuildinfo
