@@ -53,3 +53,5 @@ texnes_new_questions.md
 # generated native folders
 /ios
 /android
+
+/supabase/migrations
