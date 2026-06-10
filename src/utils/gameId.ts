@@ -1,12 +1,33 @@
 /** Characters allowed in game codes (no 0/O, 1/I/L ambiguity). */
 export const GAME_CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 
-export function generateGameId(): string {
-  let id = '';
-  for (let i = 0; i < 6; i++) {
-    id += GAME_CODE_ALPHABET[Math.floor(Math.random() * GAME_CODE_ALPHABET.length)];
+/**
+ * Draw `count` unbiased random indices in [0, range) using a CSPRNG.
+ *
+ * `crypto.getRandomValues` is provided by `react-native-get-random-values`
+ * (imported once in `App.tsx`) on device and natively by the test runtime.
+ * Plain `Math.random()` is not cryptographically secure and made codes
+ * guessable; with the table readable by the anon key (see SECURITY_AUDIT.md)
+ * that enabled enumeration. Rejection sampling avoids the modulo bias a naive
+ * `byte % range` would introduce when 256 is not a multiple of `range`.
+ */
+function randomIndices(count: number, range: number): number[] {
+  const max = Math.floor(256 / range) * range; // largest unbiased byte boundary
+  const out: number[] = [];
+  const buf = new Uint8Array(count * 2);
+  while (out.length < count) {
+    crypto.getRandomValues(buf);
+    for (let i = 0; i < buf.length && out.length < count; i++) {
+      if (buf[i] < max) out.push(buf[i] % range);
+    }
   }
-  return id;
+  return out;
+}
+
+export function generateGameId(): string {
+  return randomIndices(6, GAME_CODE_ALPHABET.length)
+    .map((i) => GAME_CODE_ALPHABET[i])
+    .join('');
 }
 
 /**
