@@ -16,14 +16,37 @@ export type Category =
 
 export type Points = 1 | 2 | 3;
 
-export interface Question {
+interface BaseQuestion {
   id: string;
   category: Category;
   difficulty: Points;
   text: string;
+}
+
+/**
+ * Classic multiple-choice question. `type` is optional so the entire existing
+ * question bank (which predates the discriminated union) stays valid without a
+ * `type` field — an absent `type` means `'choice'`.
+ */
+export interface ChoiceQuestion extends BaseQuestion {
+  type?: 'choice';
   options: [string, string, string, string];
   correctIndex: 0 | 1 | 2 | 3;
 }
+
+/**
+ * "Closest wins" question: players type a number; whoever is nearest to
+ * `correctValue` earns the round's points (ties → all closest earn it). No
+ * options, no per-player absolute correctness — see resolveForScoring().
+ */
+export interface NumericQuestion extends BaseQuestion {
+  type: 'numeric';
+  correctValue: number;
+  /** Optional display suffix shown next to the answer, e.g. 'μ.', 'έτος', '%'. */
+  unit?: string;
+}
+
+export type Question = ChoiceQuestion | NumericQuestion;
 
 export interface Player {
   id: string;
@@ -37,6 +60,13 @@ export interface Player {
 export interface PlayerAnswer {
   playerId: string;
   answerIndex: number | null;
+  /** The typed number for numeric ('closest wins') questions; null otherwise. */
+  answerValue?: number | null;
+  /**
+   * For choice questions: whether the picked option was right (set at submit).
+   * For numeric questions: whether this player was closest (a relative result,
+   * so it's computed at review time by resolveForScoring, not at submit).
+   */
   isCorrect: boolean;
   answeredAt: number;
   stolenFrom?: string;

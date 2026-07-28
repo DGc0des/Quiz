@@ -1,91 +1,71 @@
-<svg viewBox="0 0 130 130" width="1024" height="1024" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 220 220" width="1024" height="1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Quizby Burly — capybara mascot (happy pose) -->
+  <defs>
+    <clipPath id="body">
+      <path d="M 60 40 C 40 44, 26 66, 26 92 C 22 104, 12 112, 12 130 C 10 152, 22 172, 32 186 C 44 202, 74 210, 108 210 C 146 210, 182 202, 196 184 C 206 172, 202 150, 196 134 C 192 122, 196 106, 194 90 C 191 66, 178 46, 150 40 C 128 34, 80 34, 60 40 Z"/>
+    </clipPath>
+  </defs>
+
   <!-- ground shadow -->
-  <ellipse cx="65" cy="120" rx="46" ry="3.8" fill="rgba(0,0,0,0.22)"/>
+  <ellipse cx="108" cy="210" rx="78" ry="6" fill="#2E160B" opacity="0.16"/>
 
-  <!-- loaf-shaped body -->
-  <path d="M 18 60 C 18 42, 30 30, 50 28 C 64 26, 82 28, 96 32 C 110 38, 116 52, 116 70 C 116 92, 104 110, 80 114 C 56 116, 32 114, 22 102 C 14 90, 12 76, 18 60 Z" fill="#D4A47A" stroke="#5A3A22" stroke-width="3" stroke-linejoin="round"/>
+  <!-- body silhouette -->
+  <path d="M 60 40 C 40 44, 26 66, 26 92 C 22 104, 12 112, 12 130 C 10 152, 22 172, 32 186 C 44 202, 74 210, 108 210 C 146 210, 182 202, 196 184 C 206 172, 202 150, 196 134 C 192 122, 196 106, 194 90 C 191 66, 178 46, 150 40 C 128 34, 80 34, 60 40 Z" fill="#C07A48" stroke="#2E160B" stroke-width="5" stroke-linejoin="round"/>
 
-  <!-- belly lighter wash -->
-  <ellipse cx="64" cy="92" rx="40" ry="18" fill="#E5BC92" opacity="0.55"/>
-
-  <!-- fur tufts — left edge -->
-  <g stroke="#5A3A22" stroke-width="1.6" stroke-linecap="round" fill="none">
-    <path d="M16 56 q -2 2 -1 5"/>
-    <path d="M14 66 q -2 2 -1 5"/>
-    <path d="M14 78 q -2 2 -1 5"/>
-    <path d="M16 90 q -2 2 -1 5"/>
-    <path d="M22 102 q -2 2 -1 4"/>
+  <!-- cel-shade shapes, clipped to the body -->
+  <g clip-path="url(#body)">
+    <path d="M 150 60 C 180 70, 200 96, 198 140 C 196 184, 168 210, 120 214 C 175 206, 190 168, 184 132 C 178 96, 196 70, 150 60 Z" fill="#9A5530" opacity="0.9"/>
+    <path d="M 60 168 C 80 188, 140 188, 160 168 C 150 206, 70 206, 60 168 Z" fill="#7C3F22" opacity="0.55"/>
+    <path d="M 60 42 C 40 48, 28 66, 28 92 C 36 70, 56 52, 86 48 C 72 44, 64 42, 60 42 Z" fill="#DBA66E" opacity="0.85"/>
+    <g stroke="#7C3F22" stroke-width="3" fill="none" opacity="0.5" stroke-linecap="round">
+      <path d="M 150 150 Q 168 162 168 182"/>
+      <path d="M 40 150 Q 30 164 34 182"/>
+    </g>
   </g>
 
-  <!-- fur tufts — bottom edge -->
-  <g stroke="#5A3A22" stroke-width="1.4" stroke-linecap="round" fill="none" opacity="0.7">
-    <path d="M30 114 l 1 4"/>
-    <path d="M44 116 l 1 4"/>
-    <path d="M62 117 l 1 4"/>
-    <path d="M82 116 l 1 4"/>
-    <path d="M100 112 l 2 4"/>
+  <!-- ears -->
+  <path d="M 58 44 C 46 30, 44 18, 54 16 C 64 16, 74 30, 72 44 Z" fill="#C07A48" stroke="#2E160B" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M 56 38 C 52 30, 52 24, 57 23 C 62 24, 65 31, 64 39 Z" fill="#7C3F22" opacity="0.6"/>
+  <path d="M 152 42 C 164 28, 168 16, 158 14 C 148 15, 138 28, 140 43 Z" fill="#C07A48" stroke="#2E160B" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M 154 37 C 158 29, 159 23, 154 22 C 149 24, 147 31, 148 38 Z" fill="#7C3F22" opacity="0.6"/>
+
+  <!-- cheek blush -->
+  <g opacity="0.6">
+    <ellipse cx="58" cy="124" rx="11" ry="6.5" fill="#D98A6F"/>
+    <ellipse cx="156" cy="122" rx="11" ry="6.5" fill="#D98A6F"/>
   </g>
 
-  <!-- interior fur dashes -->
-  <g stroke="#5A3A22" stroke-width="1" stroke-linecap="round" fill="none" opacity="0.4">
-    <line x1="36" y1="60" x2="36" y2="64"/>
-    <line x1="46" y1="80" x2="46" y2="84"/>
-    <line x1="30" y1="86" x2="30" y2="90"/>
-    <line x1="60" y1="98" x2="60" y2="102"/>
-    <line x1="78" y1="92" x2="78" y2="96"/>
-    <line x1="96" y1="76" x2="96" y2="80"/>
-    <line x1="92" y1="100" x2="92" y2="104"/>
-    <line x1="50" y1="56" x2="50" y2="60"/>
-    <line x1="80" y1="60" x2="80" y2="64"/>
+  <!-- brows (happy) -->
+  <g stroke="#2E160B" stroke-width="6" fill="none" stroke-linecap="round">
+    <path d="M 66 76 Q 80 70 96 74"/>
+    <path d="M 110 74 Q 124 68 140 74"/>
   </g>
-
-  <!-- tiny round ears -->
-  <ellipse cx="34" cy="32" rx="6" ry="5" fill="#D4A47A" stroke="#5A3A22" stroke-width="2.6"/>
-  <ellipse cx="34" cy="33" rx="2.6" ry="2" fill="#8C5E3D" opacity="0.6"/>
-  <ellipse cx="92" cy="32" rx="6" ry="5" fill="#D4A47A" stroke="#5A3A22" stroke-width="2.6"/>
-  <ellipse cx="92" cy="33" rx="2.6" ry="2" fill="#8C5E3D" opacity="0.6"/>
-
-  <!-- snout -->
-  <path d="M 38 60 C 38 78, 48 84, 65 84 C 82 84, 92 78, 92 60 C 92 56, 86 54, 65 54 C 44 54, 38 56, 38 60 Z" fill="#8C5E3D" stroke="#5A3A22" stroke-width="2.8" stroke-linejoin="round"/>
-
-  <!-- snout highlight -->
-  <ellipse cx="55" cy="62" rx="14" ry="4" fill="#A87850" opacity="0.5"/>
 
   <!-- eyes (happy) -->
-  <path d="M 41.5 48.5 Q 46 46 50.5 48.5" stroke="#5A3A22" stroke-width="2.6" fill="none" stroke-linecap="round"/>
-  <path d="M 79.5 48.5 Q 84 46 88.5 48.5" stroke="#5A3A22" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+  <ellipse cx="86" cy="94" rx="15" ry="17" fill="#FBF7ED" stroke="#2E160B" stroke-width="5"/>
+  <ellipse cx="86" cy="92" rx="6.5" ry="7.5" fill="#2E160B"/>
+  <circle cx="88.6" cy="89" r="2.4" fill="#fff"/>
+  <ellipse cx="124" cy="90" rx="14" ry="16" fill="#FBF7ED" stroke="#2E160B" stroke-width="5"/>
+  <ellipse cx="124" cy="88" rx="6.5" ry="7.5" fill="#2E160B"/>
+  <circle cx="126.6" cy="85" r="2.4" fill="#fff"/>
 
-  <!-- nostrils -->
-  <ellipse cx="58" cy="64" rx="1.6" ry="1.2" fill="#5A3A22"/>
-  <ellipse cx="72" cy="64" rx="1.6" ry="1.2" fill="#5A3A22"/>
+  <!-- muzzle / cheek-chin cream mass -->
+  <path d="M 64 122 C 56 150, 70 178, 104 180 C 138 178, 152 150, 144 122 C 132 138, 76 138, 64 122 Z" fill="#ECD8AF" stroke="#2E160B" stroke-width="3.4" stroke-linejoin="round"/>
+  <path d="M 110 134 C 134 134, 146 126, 144 122 C 138 150, 150 168, 132 178 C 150 156, 138 138, 110 134 Z" fill="#D6BC8C" opacity="0.7"/>
 
-  <!-- mouth + buck teeth (happy) -->
-  <path d="M58 74 Q 65 76 72 74" stroke="#5A3A22" stroke-width="1.8" fill="none" stroke-linecap="round"/>
-  <rect x="61.5" y="74" width="3.5" height="6" rx="0.7" fill="#FFF5E0" stroke="#5A3A22" stroke-width="1.4"/>
-  <rect x="65.5" y="74" width="3.5" height="6" rx="0.7" fill="#FFF5E0" stroke="#5A3A22" stroke-width="1.4"/>
+  <!-- big grey nose pad -->
+  <path d="M 78 118 C 78 106, 96 100, 114 102 C 134 104, 146 112, 144 124 C 142 134, 122 138, 104 136 C 86 134, 78 130, 78 118 Z" fill="#827A71" stroke="#2E160B" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M 120 106 C 138 108, 146 116, 144 124 C 142 134, 122 138, 106 136 C 132 134, 138 120, 120 106 Z" fill="#5B544C" opacity="0.75"/>
+  <ellipse cx="95" cy="112" rx="9" ry="4.5" fill="#ADA69C" opacity="0.8"/>
+  <circle cx="110" cy="120" r="1.6" fill="#5B544C"/>
+  <circle cx="126" cy="118" r="1.4" fill="#5B544C"/>
+  <ellipse cx="92" cy="124" rx="3" ry="2.4" fill="#2E160B"/>
+  <ellipse cx="120" cy="128" rx="3" ry="2.4" fill="#2E160B"/>
 
-  <!-- blush -->
-  <ellipse cx="28" cy="56" rx="3.8" ry="2.6" fill="#F2A9A3" opacity="0.85"/>
-  <ellipse cx="102" cy="56" rx="3.8" ry="2.6" fill="#F2A9A3" opacity="0.85"/>
-
-  <!-- lightbulb -->
-  <circle cx="20" cy="22" r="5" fill="#FFD16B" stroke="#5A3A22" stroke-width="1.8"/>
-  <circle cx="18.5" cy="20.5" r="1.2" fill="#FFF6CC"/>
-  <g stroke="#D89B2E" stroke-width="1.3" stroke-linecap="round">
-    <line x1="13" y1="18" x2="10" y2="16"/>
-    <line x1="27" y1="18" x2="30" y2="16"/>
-    <line x1="20" y1="14" x2="20" y2="11"/>
-  </g>
-
-  <!-- feet -->
-  <path d="M 36 116 C 32 116, 30 122, 36 124 C 46 124, 52 122, 52 118 C 50 114, 42 114, 36 116 Z" fill="#8C5E3D" stroke="#5A3A22" stroke-width="2.4" stroke-linejoin="round"/>
-  <path d="M 78 116 C 74 116, 72 122, 78 124 C 88 124, 94 122, 94 118 C 92 114, 84 114, 78 116 Z" fill="#8C5E3D" stroke="#5A3A22" stroke-width="2.4" stroke-linejoin="round"/>
-  <g stroke="#5A3A22" stroke-width="1.4" stroke-linecap="round">
-    <line x1="38" y1="120" x2="38" y2="124"/>
-    <line x1="42" y1="120" x2="42" y2="124"/>
-    <line x1="46" y1="120" x2="46" y2="124"/>
-    <line x1="80" y1="120" x2="80" y2="124"/>
-    <line x1="84" y1="120" x2="84" y2="124"/>
-    <line x1="88" y1="120" x2="88" y2="124"/>
-  </g>
+  <!-- mouth (happy) — warm open smile with signature incisors -->
+  <path d="M 84 150 Q 104 174 124 150 Q 104 157 84 150 Z" fill="#7A4036" stroke="#2E160B" stroke-width="5" stroke-linejoin="round"/>
+  <rect x="95.5" y="149" width="9" height="11" rx="1.5" fill="#FAF2E0" stroke="#2E160B" stroke-width="2.4"/>
+  <rect x="104.5" y="149" width="9" height="11" rx="1.5" fill="#FAF2E0" stroke="#2E160B" stroke-width="2.4"/>
+  <line x1="104" y1="149" x2="104" y2="159" stroke="#E3D6BC" stroke-width="1.4"/>
+  <path d="M 92 163 Q 104 171 116 163" fill="#C9554B"/>
 </svg>

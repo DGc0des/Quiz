@@ -1260,6 +1260,34 @@ export const questions: Question[] = [
   { id: 'ent_w_3_18', category: 'Ψυχαγωγία', difficulty: 3, text: 'Ποια ταινία επιστημονικής φαντασίας του Ρίντλεϊ Σκοτ (1982) βασίζεται σε μυθιστόρημα του Φίλιπ Ντικ;', options: ['Alien', 'Blade Runner', 'Total Recall', 'Minority Report'], correctIndex: 1 },
   { id: 'ent_w_3_19', category: 'Ψυχαγωγία', difficulty: 3, text: 'Ποιο γαλλικό ηλεκτρονικό ντουέτο με ρομποτικά κράνη κυκλοφόρησε το «Get Lucky»;', options: ['The Chemical Brothers', 'Daft Punk', 'Justice', 'Deadmau5'], correctIndex: 1 },
   { id: 'ent_w_3_20', category: 'Ψυχαγωγία', difficulty: 3, text: 'Ποιοι δημιούργησαν τη σειρά κινουμένων σχεδίων «South Park»;', options: ['Σεθ ΜακΦάρλεϊν', 'Τρέι Πάρκερ & Ματ Στόουν', 'Ματ Γκρένινγκ', 'Μάικ Τζατζ'], correctIndex: 1 },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Αριθμητικές ερωτήσεις — «closest wins» (πληκτρολόγησε αριθμό, ο πιο κοντινός
+  // κερδίζει). ⚠️ STARTER SET — ΕΠΑΛΗΘΕΥΣΕ ΟΛΑ ΤΑ ΝΟΥΜΕΡΑ πριν το release.
+  // ──────────────────────────────────────────────────────────────────────────
+  { id: 'num_hist_1', category: 'Ιστορία', difficulty: 1, type: 'numeric', text: 'Σε ποιο έτος ξεκίνησε ο Β΄ Παγκόσμιος Πόλεμος;', correctValue: 1939 },
+  { id: 'num_hist_2', category: 'Ιστορία', difficulty: 2, type: 'numeric', text: 'Σε ποιο έτος έπεσε η Κωνσταντινούπολη στους Οθωμανούς;', correctValue: 1453 },
+  { id: 'num_hist_3', category: 'Ιστορία', difficulty: 3, type: 'numeric', text: 'Σε ποιο έτος π.Χ. έγινε η Μάχη του Μαραθώνα;', correctValue: 490, unit: 'π.Χ.' },
+
+  { id: 'num_geo_1', category: 'Γεωγραφία', difficulty: 1, type: 'numeric', text: 'Πόσες ήπειροι υπάρχουν στη Γη;', correctValue: 7 },
+  { id: 'num_geo_2', category: 'Γεωγραφία', difficulty: 2, type: 'numeric', text: 'Πόσα μέτρα ύψος έχει ο Μύτικας, η ψηλότερη κορυφή του Ολύμπου;', correctValue: 2918, unit: 'μ.' },
+  { id: 'num_geo_3', category: 'Γεωγραφία', difficulty: 3, type: 'numeric', text: 'Πόσα μέτρα ύψος έχει το όρος Έβερεστ;', correctValue: 8849, unit: 'μ.' },
+
+  { id: 'num_sci_1', category: 'Επιστήμη', difficulty: 1, type: 'numeric', text: 'Στους πόσους βαθμούς Κελσίου βράζει το νερό στο επίπεδο της θάλασσας;', correctValue: 100, unit: '°C' },
+  { id: 'num_sci_2', category: 'Επιστήμη', difficulty: 2, type: 'numeric', text: 'Πόσα οστά έχει ο σκελετός ενός ενήλικα ανθρώπου;', correctValue: 206, unit: 'οστά' },
+  { id: 'num_sci_3', category: 'Επιστήμη', difficulty: 3, type: 'numeric', text: 'Πόσα περίπου χιλιόμετρα ανά δευτερόλεπτο ταξιδεύει το φως στο κενό;', correctValue: 299792, unit: 'χλμ/δευτ.' },
+
+  { id: 'num_sport_1', category: 'Αθλητισμός', difficulty: 1, type: 'numeric', text: 'Πόσοι παίκτες κάθε ομάδας βρίσκονται στο γήπεδο σε έναν αγώνα ποδοσφαίρου;', correctValue: 11 },
+  { id: 'num_sport_2', category: 'Αθλητισμός', difficulty: 2, type: 'numeric', text: 'Σε ποιο έτος έγιναν οι πρώτοι σύγχρονοι Ολυμπιακοί Αγώνες στην Αθήνα;', correctValue: 1896 },
+  { id: 'num_sport_3', category: 'Αθλητισμός', difficulty: 3, type: 'numeric', text: 'Πόσα χιλιόμετρα είναι η απόσταση ενός μαραθωνίου;', correctValue: 42.195, unit: 'χλμ' },
+
+  { id: 'num_art_1', category: 'Τέχνες', difficulty: 1, type: 'numeric', text: 'Πόσες χορδές έχει μια κλασική κιθάρα;', correctValue: 6 },
+  { id: 'num_art_2', category: 'Τέχνες', difficulty: 2, type: 'numeric', text: 'Πόσα πλήκτρα έχει ένα τυπικό πιάνο;', correctValue: 88 },
+  { id: 'num_art_3', category: 'Τέχνες', difficulty: 3, type: 'numeric', text: 'Σε ποιο έτος γεννήθηκε ο Βόλφγκανγκ Αμαντέους Μότσαρτ;', correctValue: 1756 },
+
+  { id: 'num_ent_1', category: 'Ψυχαγωγία', difficulty: 1, type: 'numeric', text: 'Πόσα χρώματα έχει ένας κλασικός κύβος του Ρούμπικ;', correctValue: 6, unit: 'χρώματα' },
+  { id: 'num_ent_2', category: 'Ψυχαγωγία', difficulty: 2, type: 'numeric', text: 'Σε ποιο έτος κυκλοφόρησε η πρώτη ταινία «Star Wars»;', correctValue: 1977 },
+  { id: 'num_ent_3', category: 'Ψυχαγωγία', difficulty: 3, type: 'numeric', text: 'Σε ποιο έτος ιδρύθηκε το YouTube;', correctValue: 2005 },
 ];
 
 export function getQuestionById(id: string): Question | undefined {
@@ -1270,6 +1298,12 @@ export function getQuestions(category: Category, difficulty: Points): Question[]
   return questions.filter((q) => q.category === category && q.difficulty === difficulty);
 }
 
+// DEV ONLY — when true, pickQuestion returns a numeric ("closest wins")
+// question whenever the chosen category+difficulty has one, so numeric rounds
+// are reliably testable solo. Set to false (or delete the guarded block below)
+// before release. Pairs with the Solo Test button in LobbyScreen.
+const DEV_PREFER_NUMERIC = false;
+
 export function pickQuestion(
   category: Category,
   difficulty: Points,
@@ -1277,6 +1311,11 @@ export function pickQuestion(
 ): Question | null {
   const pool = getQuestions(category, difficulty).filter((q) => !usedIds.includes(q.id));
   if (pool.length === 0) return null;
+  // DEV ONLY — bias toward numeric questions (see DEV_PREFER_NUMERIC above).
+  if (DEV_PREFER_NUMERIC) {
+    const numeric = pool.filter((q) => q.type === 'numeric');
+    if (numeric.length > 0) return numeric[Math.floor(Math.random() * numeric.length)];
+  }
   return pool[Math.floor(Math.random() * pool.length)];
 }
 

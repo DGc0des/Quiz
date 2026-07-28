@@ -160,7 +160,7 @@ export default function LobbyScreen({ route, navigation }: Props) {
         </View>
         <Text style={s.title}>Έτοιμοι;</Text>
 
-        {/* Code + QR card — mini QR encodes raw game id only (fewer modules → scannable small); scanner accepts deep link too */}
+        {/* Code + QR card — QR encodes the quizapp://join/ deep link so a generic phone camera opens the app (a raw code just triggers a web search); the in-app scanner accepts both forms */}
         <View style={[s.card, SHADOW.card]}>
           <View style={s.cardInner}>
             <View style={{ flex: 1 }}>
@@ -169,7 +169,7 @@ export default function LobbyScreen({ route, navigation }: Props) {
             </View>
             <View style={s.qrWrap}>
               <QRCode
-                value={gameId}
+                value={deepLink}
                 size={56}
                 ecl="L"
                 backgroundColor="#ffffff"

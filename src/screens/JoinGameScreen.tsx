@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { updateGame } from '../utils/updateGame';
-import { parseGameCodeFromScanPayload } from '../utils/gameId';
+import { parseGameCodeFromScanPayload, GAME_CODE_ALPHABET } from '../utils/gameId';
 import { RootStackParamList } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { C, F, SHADOW } from '../theme';
@@ -45,6 +45,10 @@ export default function JoinGameScreen({ route, navigation }: Props) {
     const trimmed = code.trim().toUpperCase();
     if (trimmed.length !== 6) {
       setError('Ο κωδικός πρέπει να είναι 6 χαρακτήρες.');
+      return;
+    }
+    if (![...trimmed].every((ch) => GAME_CODE_ALPHABET.includes(ch))) {
+      setError('Μη έγκυρος κωδικός.');
       return;
     }
     setLoading(true);

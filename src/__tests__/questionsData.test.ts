@@ -1,5 +1,5 @@
 import { questions, getQuestions } from '../data/questions';
-import { Category } from '../types';
+import { Category, ChoiceQuestion, NumericQuestion } from '../types';
 
 const VALID_CATEGORIES: Category[] = [
   'Ιστορία',
@@ -9,6 +9,13 @@ const VALID_CATEGORIES: Category[] = [
   'Τέχνες',
   'Ψυχαγωγία',
 ];
+
+const choiceQuestions = questions.filter(
+  (q): q is ChoiceQuestion => q.type !== 'numeric',
+);
+const numericQuestions = questions.filter(
+  (q): q is NumericQuestion => q.type === 'numeric',
+);
 
 describe('questions.ts data integrity', () => {
   test('every id is unique', () => {
@@ -42,29 +49,15 @@ describe('questions.ts data integrity', () => {
     expect(empty.map((q) => q.id)).toEqual([]);
   });
 
-  test('every question has exactly 4 options', () => {
-    const wrong = questions.filter((q) => !Array.isArray(q.options) || q.options.length !== 4);
-    expect(wrong.map((q) => q.id)).toEqual([]);
-  });
-
-  test('no option is empty', () => {
-    const wrong = questions.filter((q) =>
-      q.options.some((opt) => typeof opt !== 'string' || opt.trim() === ''),
-    );
-    expect(wrong.map((q) => q.id)).toEqual([]);
-  });
-
-  test('correctIndex is 0, 1, 2, or 3', () => {
-    const wrong = questions.filter((q) => ![0, 1, 2, 3].includes(q.correctIndex));
-    expect(wrong.map((q) => q.id)).toEqual([]);
-  });
-
-  test('options within a question are unique', () => {
-    const wrong = questions.filter((q) => {
-      const set = new Set(q.options.map((o) => o.trim()));
-      return set.size !== q.options.length;
-    });
-    expect(wrong.map((q) => q.id)).toEqual([]);
+  test('no two questions share the same text', () => {
+    const seen = new Set<string>();
+    const duplicates: string[] = [];
+    for (const q of questions) {
+      const t = q.text.trim();
+      if (seen.has(t)) duplicates.push(q.id);
+      seen.add(t);
+    }
+    expect(duplicates).toEqual([]);
   });
 
   test('every category has at least one question per difficulty', () => {
@@ -77,5 +70,57 @@ describe('questions.ts data integrity', () => {
       }
     }
     expect(missing).toEqual([]);
+  });
+});
+
+describe('choice questions', () => {
+  test('every choice question has exactly 4 options', () => {
+    const wrong = choiceQuestions.filter(
+      (q) => !Array.isArray(q.options) || q.options.length !== 4,
+    );
+    expect(wrong.map((q) => q.id)).toEqual([]);
+  });
+
+  test('no option is empty', () => {
+    const wrong = choiceQuestions.filter((q) =>
+      q.options.some((opt) => typeof opt !== 'string' || opt.trim() === ''),
+    );
+    expect(wrong.map((q) => q.id)).toEqual([]);
+  });
+
+  test('correctIndex is 0, 1, 2, or 3', () => {
+    const wrong = choiceQuestions.filter((q) => ![0, 1, 2, 3].includes(q.correctIndex));
+    expect(wrong.map((q) => q.id)).toEqual([]);
+  });
+
+  test('options within a question are unique', () => {
+    const wrong = choiceQuestions.filter((q) => {
+      const set = new Set(q.options.map((o) => o.trim()));
+      return set.size !== q.options.length;
+    });
+    expect(wrong.map((q) => q.id)).toEqual([]);
+  });
+});
+
+describe('numeric questions', () => {
+  test('there is at least one numeric question', () => {
+    expect(numericQuestions.length).toBeGreaterThan(0);
+  });
+
+  test('every numeric question has a finite correctValue and no options', () => {
+    const wrong = numericQuestions.filter(
+      (q) =>
+        typeof q.correctValue !== 'number' ||
+        !Number.isFinite(q.correctValue) ||
+        'options' in q,
+    );
+    expect(wrong.map((q) => q.id)).toEqual([]);
+  });
+
+  test('unit, when present, is a non-empty string', () => {
+    const wrong = numericQuestions.filter(
+      (q) => q.unit !== undefined && (typeof q.unit !== 'string' || q.unit.trim() === ''),
+    );
+    expect(wrong.map((q) => q.id)).toEqual([]);
   });
 });

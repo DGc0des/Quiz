@@ -143,20 +143,4 @@ const styles = StyleSheet.create({
   disabled: {
     opacity: 0.4,
   },
-  dots: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 32,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: C.inkMute,
-    opacity: 0.4,
-  },
-  dotActive: {
-    backgroundColor: C.primary,
-    opacity: 1,
-  },
 });

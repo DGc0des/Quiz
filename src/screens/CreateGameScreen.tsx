@@ -130,7 +130,7 @@ export default function CreateGameScreen({ route, navigation }: Props) {
 
         {/* QR Code */}
         <View style={styles.qrOuter}>
-          <QRCode value={gameId} size={180} ecl="L" color={C.bg} backgroundColor="#ffffff" />
+          <QRCode value={deepLink} size={180} ecl="L" color={C.bg} backgroundColor="#ffffff" />
         </View>
 
         {/* Code card */}
