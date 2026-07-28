@@ -10,6 +10,9 @@ const VALID_CATEGORIES: Category[] = [
   'Ψυχαγωγία',
 ];
 
+/** Questions held in every category × difficulty bucket. */
+const QUESTIONS_PER_BUCKET = 78;
+
 const choiceQuestions = questions.filter(
   (q): q is ChoiceQuestion => q.type !== 'numeric',
 );
@@ -70,6 +73,24 @@ describe('questions.ts data integrity', () => {
       }
     }
     expect(missing).toEqual([]);
+  });
+
+  // The bank is deliberately balanced: every category × difficulty bucket holds
+  // exactly QUESTIONS_PER_BUCKET questions, so no category runs dry before the
+  // others during a long game or a chain of rematches.
+  test(`every category has exactly ${QUESTIONS_PER_BUCKET} questions per difficulty`, () => {
+    const offBalance: string[] = [];
+    for (const cat of VALID_CATEGORIES) {
+      for (const diff of [1, 2, 3] as const) {
+        const n = getQuestions(cat, diff).length;
+        if (n !== QUESTIONS_PER_BUCKET) offBalance.push(`${cat} d${diff}: ${n}`);
+      }
+    }
+    expect(offBalance).toEqual([]);
+  });
+
+  test('the bank totals every bucket combined', () => {
+    expect(questions.length).toBe(VALID_CATEGORIES.length * 3 * QUESTIONS_PER_BUCKET);
   });
 });
 
