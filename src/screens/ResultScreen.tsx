@@ -14,7 +14,7 @@ import { useTimer } from '../hooks/useTimer';
 import { getQuestionById } from '../data/questions';
 import { leaveGame } from '../utils/leaveGame';
 import { updateGame } from '../utils/updateGame';
-import { pickWinner, resolveAnswers, earnedForPlayer, WIN_SCORE } from '../utils/scoring';
+import { pickWinner, resolveForScoring, earnedForPlayer, WIN_SCORE } from '../utils/scoring';
 import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
 import { RootStackParamList, Player } from '../types';
 import { C, F, SHADOW } from '../theme';
@@ -25,6 +25,11 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Result'>;
 
 /** Seconds the results screen is shown before auto-advancing to the next turn. */
 const REVIEW_SECONDS = 90;
+
+/** Compact number for display: drops trailing zeros, caps long decimals. */
+function formatNum(n: number): string {
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
+}
 
 export default function ResultScreen({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
@@ -84,7 +89,10 @@ export default function ResultScreen({ route, navigation }: Props) {
       (g) => {
         const turn = g.currentTurn;
         if (!turn || g.status !== 'reviewing') return null;
-        const resolved = resolveAnswers(turn);
+        const resolved = resolveForScoring(
+          turn,
+          turn.questionId ? getQuestionById(turn.questionId) : null,
+        );
 
         const updatedPlayers: Record<string, Player> = {};
         for (const [id, p] of Object.entries(g.players)) {
@@ -146,7 +154,15 @@ export default function ResultScreen({ route, navigation }: Props) {
 
   const turn = game.currentTurn;
   const question = turn.questionId ? getQuestionById(turn.questionId) : null;
-  const resolved = resolveAnswers(turn);
+  const resolved = resolveForScoring(turn, question);
+
+  const isNumericQ = question?.type === 'numeric';
+  const correctValue = question?.type === 'numeric' ? question.correctValue : null;
+  const correctText = !question
+    ? ''
+    : question.type === 'numeric'
+      ? `${formatNum(question.correctValue)}${question.unit ? ' ' + question.unit : ''}`
+      : question.options[question.correctIndex];
 
   const earnedMap: Record<string, number> = {};
   for (const id of Object.keys(game.players)) {
@@ -176,10 +192,10 @@ export default function ResultScreen({ route, navigation }: Props) {
                 <Text style={s.correctCheck}>✓</Text>
               </View>
               <View style={s.correctTextCol}>
-                <Text style={s.correctLabel}>Σωστή απάντηση:</Text>
-                <Text style={s.correctAnswer}>
-                  {question.options[question.correctIndex]}
+                <Text style={s.correctLabel}>
+                  {isNumericQ ? 'Σωστός αριθμός:' : 'Σωστή απάντηση:'}
                 </Text>
+                <Text style={s.correctAnswer}>{correctText}</Text>
               </View>
             </View>
           </View>
@@ -204,6 +220,20 @@ export default function ResultScreen({ route, navigation }: Props) {
           if (noAnswer) {
             verdictText = '— δεν απάντησε';
             verdictStyle = s.verdictMute;
+          } else if (isNumericQ) {
+            const guess = resolvedAns?.answerValue;
+            const stealNote = stolenFrom ? `👊 ${stealTargetName} · ` : '';
+            if (guess == null) {
+              verdictText = '— δεν απάντησε';
+              verdictStyle = s.verdictMute;
+            } else if (isCorrect) {
+              verdictText = `${stealNote}🎯 ${formatNum(guess)} · Πλησιέστερα!${hasDouble ? ' ⚡×2' : ''} +${earned} βαθμ.`;
+              verdictStyle = s.verdictCorrect;
+            } else {
+              const dist = Math.abs(guess - (correctValue ?? 0));
+              verdictText = `${stealNote}${formatNum(guess)} · απόκλιση ${formatNum(dist)}`;
+              verdictStyle = s.verdictWrong;
+            }
           } else if (stolenFrom) {
             verdictText = isCorrect
               ? `👊 Έκλεψε από ${stealTargetName} · +${earned} βαθμ.`

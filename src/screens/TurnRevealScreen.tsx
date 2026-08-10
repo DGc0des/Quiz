@@ -22,6 +22,7 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
   const isHost = game?.players[playerId]?.isHost ?? false;
   const animatedValues = useRef<Animated.Value[]>([]);
   const didAnimate = useRef(false);
+  const advanceTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useGamePresence(gameId, playerId, game ?? null);
 
@@ -32,7 +33,7 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
     const anims = game.turnOrder.map(() => new Animated.Value(0));
     animatedValues.current = anims;
 
-    Animated.stagger(
+    const animation = Animated.stagger(
       100,
       anims.map((anim, i) =>
         Animated.sequence([
@@ -40,9 +41,10 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
           Animated.spring(anim, { toValue: 1, useNativeDriver: true, tension: 60, friction: 8 }),
         ])
       )
-    ).start(() => {
+    );
+    animation.start(() => {
       if (!isHost) return;
-      setTimeout(() => {
+      advanceTimeout.current = setTimeout(() => {
         // `updateGame` primes the local cache, so the status-watching effect
         // below navigates to Turn on its own (no reliance on the realtime echo,
         // which may not reach the writer — fatal in solo play where the host
@@ -71,6 +73,11 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
         );
       }, 1500);
     });
+
+    return () => {
+      animation.stop();
+      if (advanceTimeout.current) clearTimeout(advanceTimeout.current);
+    };
   }, [game?.status]);
 
   useEffect(() => {

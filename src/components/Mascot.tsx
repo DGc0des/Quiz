@@ -1,6 +1,8 @@
 import React from 'react';
 import { View } from 'react-native';
 import Svg, {
+  Defs,
+  ClipPath,
   G,
   Path,
   Ellipse,
@@ -10,276 +12,363 @@ import Svg, {
   Text as SvgText,
 } from 'react-native-svg';
 
-type Mood = 'happy' | 'think' | 'cheer' | 'sleep' | 'sad';
+type Mood = 'happy' | 'think' | 'cheer' | 'sleep' | 'sad' | 'angry';
 
 interface MascotProps {
   size?: number;
   mood?: Mood;
 }
 
+// Quizby Burly — chunky 3/4 capybara with big grey nose pad, white-sclera
+// eyes and the signature incisors. Each mood re-tunes the brows / eyes /
+// mouth so the emotion reads clearly. Ported from the claude.ai/design
+// "Quizby Burly Expressions" source to react-native-svg.
 export function Mascot({ size = 130, mood = 'happy' }: MascotProps) {
   const isCheer = mood === 'cheer';
-  const isThink = mood === 'think';
   const isSleep = mood === 'sleep';
   const isSad = mood === 'sad';
+  const isThink = mood === 'think';
+  const isAngry = mood === 'angry';
 
-  const fur = '#D4A47A';
-  const furLite = '#E5BC92';
-  const snout = '#8C5E3D';
-  const snoutLt = '#A87850';
-  const ink = '#5A3A22';
-  const blush = '#F2A9A3';
-  const teeth = '#FFF5E0';
-  const yellow = '#FFD16B';
-  const yellowD = '#D89B2E';
+  const fur = '#C07A48';
+  const furLt = '#DBA66E';
+  const furSh = '#9A5530';
+  const furDp = '#7C3F22';
+  const ink = '#2E160B';
+  const cream = '#ECD8AF';
+  const creamSh = '#D6BC8C';
+  const nose = '#827A71';
+  const noseSh = '#5B544C';
+  const noseHi = '#ADA69C';
+  const teeth = '#FAF2E0';
+  const teethSh = '#E3D6BC';
+  const gum = '#7A4036';
+  const sclera = '#FBF7ED';
+  const blush = '#D98A6F';
 
-  const renderEye = (cx: number, cy: number) => {
-    if (isCheer) {
+  const reactId = React.useId();
+  const gid = reactId.replace(/:/g, '_');
+  const SW = 5;
+
+  // ── EYES — big sclera eyes ──
+  const renderEyes = () => {
+    const L = { cx: 86, cy: 94 };
+    const R = { cx: 124, cy: 90 };
+    if (isSleep) {
+      return (
+        <G stroke={ink} strokeWidth={4.5} fill="none" strokeLinecap="round">
+          <Path d={`M ${L.cx - 11} ${L.cy} Q ${L.cx} ${L.cy + 8} ${L.cx + 11} ${L.cy}`} />
+          <Path d={`M ${R.cx - 11} ${R.cy} Q ${R.cx} ${R.cy + 8} ${R.cx + 11} ${R.cy}`} />
+        </G>
+      );
+    }
+    // pupil aim: forward & up for happy (friendly), side for think/angry,
+    // up & big for sad (pleading puppy-dog eyes)
+    const px = isThink ? -4 : isAngry ? 4 : 0;
+    const py = isSad ? -3 : isCheer ? 0 : isAngry ? -1 : -2;
+    const pr = isCheer ? 5 : isSad ? 7.5 : 6.5;
+    const oneEye = (e: { cx: number; cy: number }, big: boolean) => {
+      if (isCheer) {
+        return (
+          <Path
+            d={`M ${e.cx - 11} ${e.cy + 3} Q ${e.cx} ${e.cy - 9} ${e.cx + 11} ${e.cy + 3}`}
+            stroke={ink}
+            strokeWidth={4.6}
+            fill="none"
+            strokeLinecap="round"
+          />
+        );
+      }
+      return (
+        <G>
+          <Ellipse cx={e.cx} cy={e.cy} rx={big ? 15 : 14} ry={big ? 17 : 16} fill={sclera} stroke={ink} strokeWidth={SW} />
+          <Ellipse cx={e.cx + px} cy={e.cy + py} rx={pr} ry={pr + 1} fill={ink} />
+          <Circle cx={e.cx + px + 2.6} cy={e.cy + py - 3} r={isSad ? 3 : 2.4} fill="#fff" />
+          {isSad && <Circle cx={e.cx + px - 2.4} cy={e.cy + py + 2.6} r={1.7} fill="#fff" opacity={0.85} />}
+        </G>
+      );
+    };
+    return (
+      <G>
+        {oneEye(L, true)}
+        {oneEye(R, false)}
+      </G>
+    );
+  };
+
+  // ── BROWS — drive the attitude ──
+  const renderBrows = () => {
+    if (isSleep) return null;
+    let lb: string;
+    let rb: string;
+    if (isSad) {
+      // inner-up worried — steeper, pleading
+      lb = 'M 66 86 Q 80 78 96 76';
+      rb = 'M 108 76 Q 124 78 140 86';
+    } else if (isCheer) {
+      // raised, lively
+      lb = 'M 68 72 Q 80 66 94 70';
+      rb = 'M 110 70 Q 124 64 138 70';
+    } else if (isThink) {
+      // one cocked
+      lb = 'M 66 78 L 94 72';
+      rb = 'M 110 66 Q 124 64 138 70';
+    } else if (isAngry) {
+      // determined furrow
+      lb = 'M 66 74 Q 80 78 96 84';
+      rb = 'M 108 84 Q 124 76 140 72';
+    } else {
+      // HAPPY — soft, gently-raised relaxed brows
+      lb = 'M 66 76 Q 80 70 96 74';
+      rb = 'M 110 74 Q 124 68 140 74';
+    }
+    return (
+      <G stroke={ink} strokeWidth={6} fill="none" strokeLinecap="round">
+        <Path d={lb} />
+        <Path d={rb} />
+      </G>
+    );
+  };
+
+  // ── MOUTH ──
+  const renderMouth = () => {
+    const mx = 104;
+    const my = 156;
+    if (isSleep) {
       return (
         <Path
-          d={`M ${cx - 5} ${cy + 1.5} Q ${cx} ${cy - 4} ${cx + 5} ${cy + 1.5}`}
+          d={`M ${mx - 8} ${my - 4} Q ${mx} ${my + 1} ${mx + 8} ${my - 4}`}
           stroke={ink}
-          strokeWidth={2.6}
+          strokeWidth={4}
           fill="none"
           strokeLinecap="round"
         />
       );
     }
     if (isSad) {
+      // trembling, wobbly frown — corners pulled down, quivering middle
       return (
         <Path
-          d={`M ${cx - 4} ${cy - 1} Q ${cx} ${cy + 3} ${cx + 4} ${cy - 1}`}
+          d={`M ${mx - 16} ${my + 3} Q ${mx - 8} ${my - 5} ${mx - 1} ${my + 1} Q ${mx + 7} ${my + 7} ${mx + 16} ${my - 2}`}
           stroke={ink}
-          strokeWidth={2.4}
+          strokeWidth={4.6}
           fill="none"
           strokeLinecap="round"
+          strokeLinejoin="round"
         />
+      );
+    }
+    if (isCheer) {
+      // wide open joyful shout
+      return (
+        <G>
+          <Path
+            d={`M ${mx - 22} ${my - 8} Q ${mx} ${my + 24} ${mx + 22} ${my - 8} Q ${mx} ${my - 2} ${mx - 22} ${my - 8} Z`}
+            fill={gum}
+            stroke={ink}
+            strokeWidth={SW}
+            strokeLinejoin="round"
+          />
+          <Rect x={mx - 9} y={my - 9} width={9} height={11} rx={1.6} fill={teeth} stroke={ink} strokeWidth={2.4} />
+          <Rect x={mx + 0.5} y={my - 9} width={9} height={11} rx={1.6} fill={teeth} stroke={ink} strokeWidth={2.4} />
+          <Path d={`M ${mx - 13} ${my + 6} Q ${mx} ${my + 14} ${mx + 13} ${my + 6}`} fill="#C9554B" />
+        </G>
       );
     }
     if (isThink) {
+      // calm pondering — small pursed mouth, slightly cocked
       return (
-        <G>
-          <Ellipse cx={cx} cy={cy} rx={2.2} ry={2.6} fill={ink} />
-          <Circle cx={cx + 0.6} cy={cy - 0.6} r={0.6} fill="#fff" />
+        <G stroke={ink} strokeWidth={4} fill="none" strokeLinecap="round" strokeLinejoin="round">
+          <Path d={`M ${mx - 13} ${my} Q ${mx - 2} ${my - 4} ${mx + 11} ${my + 1}`} />
         </G>
       );
     }
-    if (isSleep) {
+    if (isAngry) {
+      // gritted, determined grin
       return (
-        <Line
-          x1={cx - 4}
-          y1={cy}
-          x2={cx + 4}
-          y2={cy}
-          stroke={ink}
-          strokeWidth={2.6}
-          strokeLinecap="round"
-        />
+        <G>
+          <Path
+            d={`M ${mx - 24} ${my - 6} Q ${mx} ${my + 14} ${mx + 24} ${my - 6}`}
+            fill={gum}
+            stroke={ink}
+            strokeWidth={SW}
+            strokeLinejoin="round"
+          />
+          <G stroke={ink} strokeWidth={2.2} fill={teeth}>
+            <Rect x={mx - 23} y={my - 7} width={9} height={9} rx={1.3} />
+            <Rect x={mx - 13.5} y={my - 8} width={11} height={11} rx={1.4} />
+            <Rect x={mx + 2.5} y={my - 8} width={11} height={11} rx={1.4} />
+            <Rect x={mx + 14} y={my - 7} width={9} height={9} rx={1.3} />
+          </G>
+          <Line x1={mx - 1} y1={my - 8} x2={mx - 1} y2={my + 1} stroke={teethSh} strokeWidth={1.4} />
+        </G>
       );
     }
+    // HAPPY — warm open smile with the two signature incisors
     return (
-      <Path
-        d={`M ${cx - 4.5} ${cy + 0.5} Q ${cx} ${cy - 2} ${cx + 4.5} ${cy + 0.5}`}
-        stroke={ink}
-        strokeWidth={2.6}
-        fill="none"
-        strokeLinecap="round"
-      />
-    );
-  };
-
-  const renderMouth = () => {
-    const teethGroup = (
       <G>
         <Path
-          d="M58 74 Q 65 76 72 74"
+          d={`M ${mx - 20} ${my - 6} Q ${mx} ${my + 18} ${mx + 20} ${my - 6} Q ${mx} ${my + 1} ${mx - 20} ${my - 6} Z`}
+          fill={gum}
           stroke={ink}
-          strokeWidth={1.8}
-          fill="none"
-          strokeLinecap="round"
+          strokeWidth={SW}
+          strokeLinejoin="round"
         />
-        <Rect x={61.5} y={74} width={3.5} height={6} rx={0.7} fill={teeth} stroke={ink} strokeWidth={1.4} />
-        <Rect x={65.5} y={74} width={3.5} height={6} rx={0.7} fill={teeth} stroke={ink} strokeWidth={1.4} />
+        <Rect x={mx - 8.5} y={my - 7} width={9} height={11} rx={1.5} fill={teeth} stroke={ink} strokeWidth={2.4} />
+        <Rect x={mx + 0.5} y={my - 7} width={9} height={11} rx={1.5} fill={teeth} stroke={ink} strokeWidth={2.4} />
+        <Line x1={mx} y1={my - 7} x2={mx} y2={my + 3} stroke={teethSh} strokeWidth={1.4} />
+        <Path d={`M ${mx - 12} ${my + 7} Q ${mx} ${my + 15} ${mx + 12} ${my + 7}`} fill="#C9554B" />
       </G>
     );
-
-    if (isCheer) {
-      return (
-        <G>
-          <Path d="M55 74 Q 65 84 75 74 Q 65 80 55 74 Z" fill={ink} />
-          <Ellipse cx={65} cy={79} rx={5} ry={2.2} fill="#FF6B86" />
-          <Rect x={61.5} y={72} width={3.5} height={5} rx={0.7} fill={teeth} stroke={ink} strokeWidth={1.4} />
-          <Rect x={65.5} y={72} width={3.5} height={5} rx={0.7} fill={teeth} stroke={ink} strokeWidth={1.4} />
-        </G>
-      );
-    }
-    if (isSad) {
-      return (
-        <G>
-          {teethGroup}
-          <Path
-            d="M58 82 Q 65 78 72 82"
-            stroke={ink}
-            strokeWidth={2}
-            fill="none"
-            strokeLinecap="round"
-          />
-        </G>
-      );
-    }
-    if (isSleep) {
-      return (
-        <G>
-          <Path
-            d="M61 79 Q 65 77 69 79"
-            stroke={ink}
-            strokeWidth={2}
-            fill="none"
-            strokeLinecap="round"
-          />
-          <Rect x={63} y={77} width={3} height={4} rx={0.6} fill={teeth} stroke={ink} strokeWidth={1.2} />
-        </G>
-      );
-    }
-    return teethGroup;
   };
+
+  const bodyPath =
+    'M 60 40 C 40 44, 26 66, 26 92 C 22 104, 12 112, 12 130 ' +
+    'C 10 152, 22 172, 32 186 C 44 202, 74 210, 108 210 ' +
+    'C 146 210, 182 202, 196 184 C 206 172, 202 150, 196 134 ' +
+    'C 192 122, 196 106, 194 90 C 191 66, 178 46, 150 40 ' +
+    'C 128 34, 80 34, 60 40 Z';
 
   return (
     <View style={{ width: size, height: size }}>
-      <Svg viewBox="0 0 130 130" width={size} height={size}>
+      <Svg viewBox="0 0 220 220" width={size} height={size}>
+        <Defs>
+          <ClipPath id={`body-${gid}`}>
+            <Path d={bodyPath} />
+          </ClipPath>
+        </Defs>
+
         {/* ground shadow */}
-        <Ellipse cx={65} cy={120} rx={46} ry={3.8} fill="rgba(0,0,0,0.22)" />
+        <Ellipse cx={108} cy={210} rx={78} ry={6} fill={ink} opacity={0.16} />
 
-        {/* loaf-shaped body */}
-        <Path
-          d="M 18 60 C 18 42, 30 30, 50 28 C 64 26, 82 28, 96 32 C 110 38, 116 52, 116 70 C 116 92, 104 110, 80 114 C 56 116, 32 114, 22 102 C 14 90, 12 76, 18 60 Z"
-          fill={fur}
-          stroke={ink}
-          strokeWidth={3}
-          strokeLinejoin="round"
-        />
+        {/* body silhouette (lumpy, burly, 3/4) */}
+        <Path d={bodyPath} fill={fur} stroke={ink} strokeWidth={SW} strokeLinejoin="round" />
 
-        {/* belly lighter wash */}
-        <Ellipse cx={64} cy={92} rx={40} ry={18} fill={furLite} opacity={0.55} />
-
-        {/* fur tufts — left edge */}
-        <G stroke={ink} strokeWidth={1.6} strokeLinecap="round" fill="none">
-          <Path d="M16 56 q -2 2 -1 5" />
-          <Path d="M14 66 q -2 2 -1 5" />
-          <Path d="M14 78 q -2 2 -1 5" />
-          <Path d="M16 90 q -2 2 -1 5" />
-          <Path d="M22 102 q -2 2 -1 4" />
+        {/* cel-shade shapes, clipped to the body */}
+        <G clipPath={`url(#body-${gid})`}>
+          <Path
+            d="M 150 60 C 180 70, 200 96, 198 140 C 196 184, 168 210, 120 214 C 175 206, 190 168, 184 132 C 178 96, 196 70, 150 60 Z"
+            fill={furSh}
+            opacity={0.9}
+          />
+          <Path
+            d="M 60 168 C 80 188, 140 188, 160 168 C 150 206, 70 206, 60 168 Z"
+            fill={furDp}
+            opacity={0.55}
+          />
+          <Path
+            d="M 60 42 C 40 48, 28 66, 28 92 C 36 70, 56 52, 86 48 C 72 44, 64 42, 60 42 Z"
+            fill={furLt}
+            opacity={0.85}
+          />
+          <G stroke={furDp} strokeWidth={3} fill="none" opacity={0.5} strokeLinecap="round">
+            <Path d="M 150 150 Q 168 162 168 182" />
+            <Path d="M 40 150 Q 30 164 34 182" />
+          </G>
         </G>
 
-        {/* fur tufts — bottom edge */}
-        <G stroke={ink} strokeWidth={1.4} strokeLinecap="round" fill="none" opacity={0.7}>
-          <Path d="M30 114 l 1 4" />
-          <Path d="M44 116 l 1 4" />
-          <Path d="M62 117 l 1 4" />
-          <Path d="M82 116 l 1 4" />
-          <Path d="M100 112 l 2 4" />
-        </G>
-
-        {/* interior fur dashes */}
-        <G stroke={ink} strokeWidth={1} strokeLinecap="round" fill="none" opacity={0.4}>
-          <Line x1={36} y1={60} x2={36} y2={64} />
-          <Line x1={46} y1={80} x2={46} y2={84} />
-          <Line x1={30} y1={86} x2={30} y2={90} />
-          <Line x1={60} y1={98} x2={60} y2={102} />
-          <Line x1={78} y1={92} x2={78} y2={96} />
-          <Line x1={96} y1={76} x2={96} y2={80} />
-          <Line x1={92} y1={100} x2={92} y2={104} />
-          <Line x1={50} y1={56} x2={50} y2={60} />
-          <Line x1={80} y1={60} x2={80} y2={64} />
-        </G>
-
-        {/* tiny round ears */}
+        {/* ears */}
         <G>
-          <Ellipse cx={34} cy={32} rx={6} ry={5} fill={fur} stroke={ink} strokeWidth={2.6} />
-          <Ellipse cx={34} cy={33} rx={2.6} ry={2} fill={snout} opacity={0.6} />
-          <Ellipse cx={92} cy={32} rx={6} ry={5} fill={fur} stroke={ink} strokeWidth={2.6} />
-          <Ellipse cx={92} cy={33} rx={2.6} ry={2} fill={snout} opacity={0.6} />
+          <Path
+            d="M 58 44 C 46 30, 44 18, 54 16 C 64 16, 74 30, 72 44 Z"
+            fill={fur}
+            stroke={ink}
+            strokeWidth={SW}
+            strokeLinejoin="round"
+          />
+          <Path d="M 56 38 C 52 30, 52 24, 57 23 C 62 24, 65 31, 64 39 Z" fill={furDp} opacity={0.6} />
+          <Path
+            d="M 152 42 C 164 28, 168 16, 158 14 C 148 15, 138 28, 140 43 Z"
+            fill={fur}
+            stroke={ink}
+            strokeWidth={SW}
+            strokeLinejoin="round"
+          />
+          <Path d="M 154 37 C 158 29, 159 23, 154 22 C 149 24, 147 31, 148 38 Z" fill={furDp} opacity={0.6} />
         </G>
 
-        {/* snout — long rectangular muzzle */}
-        <Path
-          d="M 38 60 C 38 78, 48 84, 65 84 C 82 84, 92 78, 92 60 C 92 56, 86 54, 65 54 C 44 54, 38 56, 38 60 Z"
-          fill={snout}
-          stroke={ink}
-          strokeWidth={2.8}
-          strokeLinejoin="round"
-        />
-
-        {/* snout highlight */}
-        <Ellipse cx={55} cy={62} rx={14} ry={4} fill={snoutLt} opacity={0.5} />
-
-        {/* eyes */}
-        {renderEye(46, 48)}
-        {renderEye(84, 48)}
-
-        {/* eyebrow tufts */}
-        {(isSad || isThink) && (
-          <G stroke={ink} strokeWidth={2} strokeLinecap="round" fill="none">
-            <Path d={isSad ? 'M40 40 Q 45 42 50 43' : 'M40 42 L 50 40'} />
-            <Path d={isSad ? 'M80 43 Q 85 42 90 40' : 'M80 40 L 90 42'} />
+        {/* soft cheek blush when happy/cheer */}
+        {!isSleep && !isSad && !isThink && !isAngry && (
+          <G opacity={isCheer ? 0.85 : 0.6}>
+            <Ellipse cx={58} cy={124} rx={11} ry={6.5} fill={blush} />
+            <Ellipse cx={156} cy={122} rx={11} ry={6.5} fill={blush} />
           </G>
         )}
 
-        {/* nostrils */}
-        <Ellipse cx={58} cy={64} rx={1.6} ry={1.2} fill={ink} />
-        <Ellipse cx={72} cy={64} rx={1.6} ry={1.2} fill={ink} />
+        {/* brows + eyes */}
+        {renderBrows()}
+        {renderEyes()}
 
-        {/* mouth + buck teeth */}
+        {/* muzzle / cheek-chin cream mass */}
+        <Path
+          d="M 64 122 C 56 150, 70 178, 104 180 C 138 178, 152 150, 144 122 C 132 138, 76 138, 64 122 Z"
+          fill={cream}
+          stroke={ink}
+          strokeWidth={3.4}
+          strokeLinejoin="round"
+        />
+        <Path
+          d="M 110 134 C 134 134, 146 126, 144 122 C 138 150, 150 168, 132 178 C 150 156, 138 138, 110 134 Z"
+          fill={creamSh}
+          opacity={0.7}
+        />
+
+        {/* big grey nose pad */}
+        <G>
+          <Path
+            d="M 78 118 C 78 106, 96 100, 114 102 C 134 104, 146 112, 144 124 C 142 134, 122 138, 104 136 C 86 134, 78 130, 78 118 Z"
+            fill={nose}
+            stroke={ink}
+            strokeWidth={SW}
+            strokeLinejoin="round"
+          />
+          <Path
+            d="M 120 106 C 138 108, 146 116, 144 124 C 142 134, 122 138, 106 136 C 132 134, 138 120, 120 106 Z"
+            fill={noseSh}
+            opacity={0.75}
+          />
+          <Ellipse cx={95} cy={112} rx={9} ry={4.5} fill={noseHi} opacity={0.8} />
+          <Circle cx={110} cy={120} r={1.6} fill={noseSh} />
+          <Circle cx={126} cy={118} r={1.4} fill={noseSh} />
+          <Ellipse cx={92} cy={124} rx={3} ry={2.4} fill={ink} />
+          <Ellipse cx={120} cy={128} rx={3} ry={2.4} fill={ink} />
+        </G>
+
+        {/* mouth */}
         {renderMouth()}
 
-        {/* blush */}
-        <Ellipse cx={28} cy={56} rx={3.8} ry={2.6} fill={blush} opacity={0.85} />
-        <Ellipse cx={102} cy={56} rx={3.8} ry={2.6} fill={blush} opacity={0.85} />
-
-        {/* lightbulb */}
-        {!isSleep && (
-          <G>
-            <Circle cx={20} cy={22} r={5} fill={yellow} stroke={ink} strokeWidth={1.8} />
-            <Circle cx={18.5} cy={20.5} r={1.2} fill="#FFF6CC" />
-            <G stroke={yellowD} strokeWidth={1.3} strokeLinecap="round">
-              <Line x1={13} y1={18} x2={10} y2={16} />
-              <Line x1={27} y1={18} x2={30} y2={16} />
-              <Line x1={20} y1={14} x2={20} y2={11} />
-            </G>
+        {/* sleep z's */}
+        {isSleep && (
+          <G fill={ink}>
+            <SvgText x={170} y={48} fontSize={22} fontFamily="serif" fontWeight="800">z</SvgText>
+            <SvgText x={188} y={32} fontSize={15} fontFamily="serif" fontWeight="800">z</SvgText>
           </G>
         )}
 
-        {/* feet */}
-        <G>
+        {/* sad tear welling under the eye */}
+        {isSad && (
           <Path
-            d="M 36 116 C 32 116, 30 122, 36 124 C 46 124, 52 122, 52 118 C 50 114, 42 114, 36 116 Z"
-            fill={snout}
+            d="M 132 104 C 129 110, 128 114, 132 115 C 136 114, 135 110, 132 104 Z"
+            fill="#7AB6E0"
             stroke={ink}
-            strokeWidth={2.4}
+            strokeWidth={1.4}
             strokeLinejoin="round"
           />
-          <Path
-            d="M 78 116 C 74 116, 72 122, 78 124 C 88 124, 94 122, 94 118 C 92 114, 84 114, 78 116 Z"
-            fill={snout}
-            stroke={ink}
-            strokeWidth={2.4}
-            strokeLinejoin="round"
-          />
-          <G stroke={ink} strokeWidth={1.4} strokeLinecap="round">
-            <Line x1={38} y1={120} x2={38} y2={124} />
-            <Line x1={42} y1={120} x2={42} y2={124} />
-            <Line x1={46} y1={120} x2={46} y2={124} />
-            <Line x1={80} y1={120} x2={80} y2={124} />
-            <Line x1={84} y1={120} x2={84} y2={124} />
-            <Line x1={88} y1={120} x2={88} y2={124} />
-          </G>
-        </G>
+        )}
 
-        {/* sleep Z's */}
-        {isSleep && (
-          <G fill={ink}>
-            <SvgText x={106} y={22} fontSize={9} fontFamily="serif" fontWeight="700">z</SvgText>
-            <SvgText x={116} y={14} fontSize={7} fontFamily="serif" fontWeight="700">z</SvgText>
+        {/* angry vein pop */}
+        {isAngry && (
+          <G stroke="#C2453B" strokeWidth={3.4} fill="none" strokeLinecap="round">
+            <Path d="M 150 52 q 8 -2 7 7 q 5 -6 9 1" />
+            <Path d="M 158 50 q 6 5 0 11" />
+          </G>
+        )}
+
+        {/* cheer action sparks */}
+        {isCheer && (
+          <G stroke={ink} strokeWidth={2} fill="#F2A03D">
+            <Path d="M 22 70 l 2.6 6 l 6 2.6 l -6 2.6 l -2.6 6 l -2.6 -6 l -6 -2.6 l 6 -2.6 z" />
+            <Path d="M 196 64 l 2 5 l 5 2 l -5 2 l -2 5 l -2 -5 l -5 -2 l 5 -2 z" />
           </G>
         )}
       </Svg>

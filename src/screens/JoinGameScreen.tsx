@@ -14,7 +14,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { updateGame } from '../utils/updateGame';
-import { parseGameCodeFromScanPayload } from '../utils/gameId';
+import { parseGameCodeFromScanPayload, GAME_CODE_ALPHABET } from '../utils/gameId';
+import { sanitizeName, NAME_MAX_LENGTH } from '../utils/sanitizeName';
 import { RootStackParamList } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { C, F, SHADOW } from '../theme';
@@ -37,7 +38,7 @@ export default function JoinGameScreen({ route, navigation }: Props) {
   const hiddenInputRef = useRef<TextInput>(null);
 
   const handleJoin = async () => {
-    const trimmedName = name.trim();
+    const trimmedName = sanitizeName(name);
     if (!trimmedName) {
       setError('Εισάγετε το όνομά σας.');
       return;
@@ -45,6 +46,10 @@ export default function JoinGameScreen({ route, navigation }: Props) {
     const trimmed = code.trim().toUpperCase();
     if (trimmed.length !== 6) {
       setError('Ο κωδικός πρέπει να είναι 6 χαρακτήρες.');
+      return;
+    }
+    if (![...trimmed].every((ch) => GAME_CODE_ALPHABET.includes(ch))) {
+      setError('Μη έγκυρος κωδικός.');
       return;
     }
     setLoading(true);
@@ -146,7 +151,7 @@ export default function JoinGameScreen({ route, navigation }: Props) {
               placeholderTextColor={C.inkMute}
               value={name}
               onChangeText={setName}
-              maxLength={20}
+              maxLength={NAME_MAX_LENGTH}
               autoCapitalize="words"
               returnKeyType="done"
               autoCorrect={false}

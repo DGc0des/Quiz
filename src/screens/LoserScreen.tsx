@@ -78,7 +78,7 @@ export default function LoserScreen({ route, navigation }: Props) {
       winnerId: null,
       rematchGameId: null,
       // Reset per rematch — carrying these over drains the question pool across
-      // a few rematches and eventually starves picking (see toSolve.md L7/L8).
+      // a few rematches and eventually starves picking (see PROJECT_STATUS.md §4.3 L7/L8).
       // A rematch is a fresh game, so repeats from a prior game are fine.
       usedQuestionIds: [],
       winScore: game.winScore ?? WIN_SCORE,

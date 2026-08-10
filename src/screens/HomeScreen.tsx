@@ -16,6 +16,7 @@ import { RootStackParamList } from '../types';
 import { C, F } from '../theme';
 import { Blobs } from '../components/Blobs';
 import { Logo } from '../components/Logo';
+import { sanitizeName, NAME_MAX_LENGTH } from '../utils/sanitizeName';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
@@ -23,7 +24,7 @@ export default function HomeScreen({ navigation }: Props) {
   const [playerName, setPlayerName] = useState('');
   const [focused, setFocused] = useState(false);
 
-  const trimmed = playerName.trim();
+  const trimmed = sanitizeName(playerName);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -41,7 +42,7 @@ export default function HomeScreen({ navigation }: Props) {
             placeholderTextColor={C.inkMute}
             value={playerName}
             onChangeText={setPlayerName}
-            maxLength={20}
+            maxLength={NAME_MAX_LENGTH}
             autoCapitalize="words"
             returnKeyType="done"
             onFocus={() => setFocused(true)}
@@ -142,21 +143,5 @@ const styles = StyleSheet.create({
   },
   disabled: {
     opacity: 0.4,
-  },
-  dots: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 32,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: C.inkMute,
-    opacity: 0.4,
-  },
-  dotActive: {
-    backgroundColor: C.primary,
-    opacity: 1,
   },
 });

@@ -1,4 +1,4 @@
-import { Player, Turn, PlayerAnswer } from '../types';
+import { Player, Turn, PlayerAnswer, Question } from '../types';
 
 /** First player to reach or exceed this after a round wins. */
 export const WIN_SCORE = 15;
@@ -17,9 +17,55 @@ export function resolveAnswers(turn: Turn): Record<string, PlayerAnswer> {
     if (answer.stolenFrom) {
       const target = turn.answers[answer.stolenFrom];
       if (target) {
-        resolved[pid] = { ...answer, answerIndex: target.answerIndex, isCorrect: target.isCorrect };
+        resolved[pid] = {
+          ...answer,
+          answerIndex: target.answerIndex,
+          answerValue: target.answerValue,
+          isCorrect: target.isCorrect,
+        };
       }
     }
+  }
+  return resolved;
+}
+
+/**
+ * For a numeric ('closest wins') round: mark the player(s) nearest to
+ * `correctValue` as `isCorrect: true` and everyone else `false`. Ties (equal
+ * distance) all count as closest, so they all earn the round's points. Players
+ * who didn't submit a number (`answerValue` null/undefined) are never closest.
+ * Non-mutating; expects steal-resolved answers as input.
+ */
+export function markClosest(
+  resolved: Record<string, PlayerAnswer>,
+  correctValue: number,
+): Record<string, PlayerAnswer> {
+  let best = Infinity;
+  for (const a of Object.values(resolved)) {
+    if (a.answerValue == null) continue;
+    best = Math.min(best, Math.abs(a.answerValue - correctValue));
+  }
+  const out: Record<string, PlayerAnswer> = {};
+  for (const [pid, a] of Object.entries(resolved)) {
+    const isClosest = a.answerValue != null && Math.abs(a.answerValue - correctValue) === best;
+    out[pid] = { ...a, isCorrect: isClosest };
+  }
+  return out;
+}
+
+/**
+ * The single resolution entry point for scoring a turn. Resolves steals, then —
+ * if the question is numeric — recomputes `isCorrect` as "was closest". Use this
+ * everywhere (ResultScreen scoring + display) instead of `resolveAnswers`
+ * directly, so numeric rounds score correctly.
+ */
+export function resolveForScoring(
+  turn: Turn,
+  question: Question | null | undefined,
+): Record<string, PlayerAnswer> {
+  const resolved = resolveAnswers(turn);
+  if (question?.type === 'numeric') {
+    return markClosest(resolved, question.correctValue);
   }
   return resolved;
 }

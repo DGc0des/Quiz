@@ -7,7 +7,7 @@ export const GAME_CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
  * `crypto.getRandomValues` is provided by `react-native-get-random-values`
  * (imported once in `App.tsx`) on device and natively by the test runtime.
  * Plain `Math.random()` is not cryptographically secure and made codes
- * guessable; with the table readable by the anon key (see SECURITY_AUDIT.md)
+ * guessable; with the table readable by the anon key (see PROJECT_STATUS.md §1)
  * that enabled enumeration. Rejection sampling avoids the modulo bias a naive
  * `byte % range` would introduce when 256 is not a multiple of `range`.
  */

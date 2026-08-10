@@ -19,6 +19,7 @@ import {
   PlusJakartaSans_800ExtraBold,
 } from '@expo-google-fonts/plus-jakarta-sans';
 import AppNavigator, { linking } from './src/navigation/AppNavigator';
+import ErrorBoundary from './src/components/ErrorBoundary';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -45,9 +46,11 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }} onLayout={onLayoutRootView}>
       <SafeAreaProvider>
-        <NavigationContainer linking={linking}>
-          <AppNavigator />
-        </NavigationContainer>
+        <ErrorBoundary>
+          <NavigationContainer linking={linking}>
+            <AppNavigator />
+          </NavigationContainer>
+        </ErrorBoundary>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

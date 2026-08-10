@@ -2,7 +2,12 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
+  KeyboardAvoidingView,
+  Keyboard,
+  Platform,
   StyleSheet,
   ScrollView,
   Animated,
@@ -35,9 +40,11 @@ export default function QuestionScreen({ route, navigation }: Props) {
 
   const turn = game?.currentTurn;
   const question = turn?.questionId ? getQuestionById(turn.questionId) : null;
+  const isNumeric = question?.type === 'numeric';
   const remaining = useTimer(TIMER_SECONDS, turn?.timerStartedAt ?? null);
 
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [numericInput, setNumericInput] = useState('');
   const [answered, setAnswered] = useState(false);
   const [visibleOptions, setVisibleOptions] = useState<number[] | null>(null);
   const [doubleActive, setDoubleActive] = useState(false);
@@ -106,7 +113,7 @@ export default function QuestionScreen({ route, navigation }: Props) {
   // reviewing — all in one version-guarded write so a concurrent answer/help
   // can never be clobbered.
   const submitAnswer = async (index: number | null) => {
-    if (!question) return;
+    if (!question || question.type === 'numeric') return;
     const correctIndex = question.correctIndex;
     await updateGame(
       gameId,
@@ -144,6 +151,43 @@ export default function QuestionScreen({ route, navigation }: Props) {
     // 'reviewing'.
   };
 
+  // Record a numeric ('closest wins') answer. Mirrors submitAnswer's atomic
+  // answer-then-maybe-flip write. `isCorrect` is left false here — who's closest
+  // is a relative result computed at review time (see scoring.resolveForScoring).
+  const submitNumeric = async (value: number | null) => {
+    await updateGame(
+      gameId,
+      (g) => {
+        const ct = g.currentTurn;
+        if (!ct || g.status !== 'question') return null;
+        if (playerId in ct.answers) return null; // already answered
+        const answers = {
+          ...ct.answers,
+          [playerId]: {
+            playerId,
+            answerIndex: null,
+            answerValue: value,
+            isCorrect: false,
+            answeredAt: Date.now(),
+          },
+        };
+        const allAnswered = Object.keys(g.players).every((id) => id in answers);
+        return {
+          ...g,
+          status: allAnswered ? 'reviewing' : g.status,
+          currentTurn: {
+            ...ct,
+            answers,
+            status: allAnswered ? 'reviewing' : ct.status,
+            timerStartedAt: allAnswered ? Date.now() : ct.timerStartedAt,
+          },
+        };
+      },
+      { base: game },
+    );
+    // Navigation handled by the status-watching effect (see submitAnswer).
+  };
+
   // On timer expiry for a player who already answered: advance only if everyone
   // is in (e.g. the last answer was a steal that landed concurrently).
   const advanceIfAllAnswered = async () => {
@@ -172,6 +216,14 @@ export default function QuestionScreen({ route, navigation }: Props) {
     await submitAnswer(index);
   };
 
+  const handleNumericSubmit = async () => {
+    if (answered || !isNumeric) return;
+    const val = parseFloat(numericInput.replace(',', '.'));
+    if (Number.isNaN(val)) return;
+    setAnswered(true);
+    await submitNumeric(val);
+  };
+
   useEffect(() => {
     if (remaining > 0 || timerFired.current) return;
     timerFired.current = true;
@@ -179,7 +231,8 @@ export default function QuestionScreen({ route, navigation }: Props) {
       setStealMode(false);
       setSabotageMode(false);
       setAnswered(true);
-      submitAnswer(null);
+      if (isNumeric) submitNumeric(null);
+      else submitAnswer(null);
     } else {
       advanceIfAllAnswered();
     }
@@ -220,7 +273,7 @@ export default function QuestionScreen({ route, navigation }: Props) {
   };
 
   const handleFifty = async () => {
-    if (!question || !canFifty) return;
+    if (!question || question.type === 'numeric' || !canFifty) return;
     const wrongIndices = [0, 1, 2, 3].filter((i) => i !== question.correctIndex);
     const keepWrong = wrongIndices[Math.floor(Math.random() * wrongIndices.length)];
     setVisibleOptions([question.correctIndex, keepWrong].sort((a, b) => a - b));
@@ -578,6 +631,11 @@ export default function QuestionScreen({ route, navigation }: Props) {
           </Animated.Text>
         ))}
 
+      <KeyboardAvoidingView
+        style={s.kav}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <Animated.View
         style={[
           s.container,
@@ -635,15 +693,17 @@ export default function QuestionScreen({ route, navigation }: Props) {
         {/* Help buttons — visible only before answering and outside pickers */}
         {!answered && !stealMode && !sabotageMode && (
           <View style={s.helpRow}>
-            <TouchableOpacity
-              style={[s.helpBtn, s.helpBtnFifty, !canFifty && s.helpBtnUsed]}
-              onPress={handleFifty}
-              disabled={!canFifty}
-              activeOpacity={0.7}
-            >
-              <Text style={s.helpBtnEmoji}>✂️</Text>
-              <Text style={[s.helpBtnLabel, s.helpBtnLabelFifty, !canFifty && s.helpBtnLabelUsed]}>50/50</Text>
-            </TouchableOpacity>
+            {!isNumeric && (
+              <TouchableOpacity
+                style={[s.helpBtn, s.helpBtnFifty, !canFifty && s.helpBtnUsed]}
+                onPress={handleFifty}
+                disabled={!canFifty}
+                activeOpacity={0.7}
+              >
+                <Text style={s.helpBtnEmoji}>✂️</Text>
+                <Text style={[s.helpBtnLabel, s.helpBtnLabelFifty, !canFifty && s.helpBtnLabelUsed]}>50/50</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={[s.helpBtn, s.helpBtnSteal, !canSteal && s.helpBtnUsed]}
               onPress={handleStealPress}
@@ -662,15 +722,17 @@ export default function QuestionScreen({ route, navigation }: Props) {
               <Text style={s.helpBtnEmoji}>⚡</Text>
               <Text style={[s.helpBtnLabel, s.helpBtnLabelDouble, !canDouble && s.helpBtnLabelUsed]}>×2</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[s.helpBtn, s.helpBtnSabotage, !canSabotage && s.helpBtnUsed]}
-              onPress={handleSabotagePress}
-              disabled={!canSabotage}
-              activeOpacity={0.7}
-            >
-              <Text style={s.helpBtnEmoji}>💣</Text>
-              <Text style={[s.helpBtnLabel, s.helpBtnLabelSabotage, !canSabotage && s.helpBtnLabelUsed]}>Σαμπ.</Text>
-            </TouchableOpacity>
+            {!isNumeric && (
+              <TouchableOpacity
+                style={[s.helpBtn, s.helpBtnSabotage, !canSabotage && s.helpBtnUsed]}
+                onPress={handleSabotagePress}
+                disabled={!canSabotage}
+                activeOpacity={0.7}
+              >
+                <Text style={s.helpBtnEmoji}>💣</Text>
+                <Text style={[s.helpBtnLabel, s.helpBtnLabelSabotage, !canSabotage && s.helpBtnLabelUsed]}>Σαμπ.</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
@@ -765,6 +827,40 @@ export default function QuestionScreen({ route, navigation }: Props) {
             <TouchableOpacity style={s.stealCancelBtn} onPress={() => setSabotageMode(false)}>
               <Text style={s.stealCancelText}>← Ακύρωση</Text>
             </TouchableOpacity>
+          </View>
+        ) : question.type === 'numeric' ? (
+          <View style={s.numericBox}>
+            <Text style={s.numericHint}>🎯 Πλησιέστερος κερδίζει</Text>
+            {!answered ? (
+              <>
+                <View style={s.numericInputRow}>
+                  <TextInput
+                    style={s.numericInput}
+                    value={numericInput}
+                    onChangeText={(t) => setNumericInput(t.replace(/[^0-9.,\-]/g, ''))}
+                    keyboardType="numeric"
+                    placeholder="Ο αριθμός σου"
+                    placeholderTextColor={C.inkMute}
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
+                  />
+                  {question.unit ? <Text style={s.numericUnit}>{question.unit}</Text> : null}
+                </View>
+                <TouchableOpacity
+                  style={[s.numericSubmit, numericInput.trim() === '' && s.numericSubmitDisabled]}
+                  onPress={handleNumericSubmit}
+                  disabled={numericInput.trim() === ''}
+                  activeOpacity={0.85}
+                >
+                  <Text style={s.numericSubmitText}>Υποβολή</Text>
+                </TouchableOpacity>
+              </>
+            ) : stealTargetId ? null : (
+              <Text style={s.numericAnswered}>
+                Η απάντησή σου: {numericInput.trim() === '' ? '—' : numericInput}
+                {question.unit ? ` ${question.unit}` : ''}
+              </Text>
+            )}
           </View>
         ) : (
           <View style={s.options}>
@@ -973,6 +1069,8 @@ export default function QuestionScreen({ route, navigation }: Props) {
 
         </ScrollView>
       </Animated.View>
+      </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -1000,6 +1098,7 @@ const s = StyleSheet.create({
     color: C.inkSoft,
     marginTop: -1,
   },
+  kav: { flex: 1 },
   container: { flex: 1, paddingHorizontal: 20, paddingTop: 18, gap: 10 },
   scrollBody: { flex: 1 },
   scrollContent: { gap: 12, paddingBottom: 24 },
@@ -1129,6 +1228,67 @@ const s = StyleSheet.create({
     fontFamily: F.bold,
     fontSize: 22,
     lineHeight: 27.5,
+    color: C.ink,
+    textAlign: 'center',
+  },
+
+  // ── Numeric ('closest wins') input ──
+  numericBox: {
+    backgroundColor: C.surface2,
+    borderWidth: 1.5,
+    borderColor: C.line,
+    borderRadius: 22,
+    padding: 18,
+    gap: 14,
+    alignItems: 'center',
+  },
+  numericHint: {
+    fontFamily: F.sansBold,
+    fontSize: 13,
+    color: C.primary,
+  },
+  numericInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    alignSelf: 'stretch',
+  },
+  numericInput: {
+    flex: 1,
+    backgroundColor: C.surface,
+    borderWidth: 1.5,
+    borderColor: C.line,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    fontFamily: F.display,
+    fontSize: 24,
+    color: C.ink,
+    textAlign: 'center',
+  },
+  numericUnit: {
+    fontFamily: F.sansBold,
+    fontSize: 16,
+    color: C.inkSoft,
+  },
+  numericSubmit: {
+    alignSelf: 'stretch',
+    backgroundColor: C.primary,
+    borderRadius: 999,
+    paddingVertical: 15,
+    alignItems: 'center',
+  },
+  numericSubmitDisabled: {
+    opacity: 0.4,
+  },
+  numericSubmitText: {
+    fontFamily: F.sansBold,
+    fontSize: 16,
+    color: C.primaryInk,
+  },
+  numericAnswered: {
+    fontFamily: F.sansBold,
+    fontSize: 16,
     color: C.ink,
     textAlign: 'center',
   },
