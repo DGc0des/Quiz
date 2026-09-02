@@ -20,6 +20,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 import AppNavigator, { linking } from './src/navigation/AppNavigator';
 import ErrorBoundary from './src/components/ErrorBoundary';
+import AuthGate from './src/components/AuthGate';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -47,9 +48,11 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }} onLayout={onLayoutRootView}>
       <SafeAreaProvider>
         <ErrorBoundary>
-          <NavigationContainer linking={linking}>
-            <AppNavigator />
-          </NavigationContainer>
+          <AuthGate>
+            <NavigationContainer linking={linking}>
+              <AppNavigator />
+            </NavigationContainer>
+          </AuthGate>
         </ErrorBoundary>
       </SafeAreaProvider>
     </GestureHandlerRootView>

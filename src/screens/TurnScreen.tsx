@@ -14,11 +14,15 @@ import { useTimer } from '../hooks/useTimer';
 import { pickQuestion, CATEGORIES } from '../data/questions';
 import { leaveGame } from '../utils/leaveGame';
 import { updateGame } from '../utils/updateGame';
+import { runGameWrite, reportWriteError, logWriteError } from '../utils/reportWriteError';
 import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
+import { finishedDestination } from '../utils/gameFlow';
 import { RootStackParamList, Points, Category } from '../types';
 import { C, F, SHADOW, CATEGORY_META } from '../theme';
 import { Blobs } from '../components/Blobs';
 import { ScoreRow } from '../components/ScoreRow';
+import { TeamScoreRow } from '../components/TeamScoreRow';
+import { isTeamGame, teamOf } from '../utils/teams';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Turn'>;
 
@@ -28,6 +32,7 @@ const PICK_SECONDS = 60;
 export default function TurnScreen({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
   const { game } = useGame(gameId);
+  const teamGame = isTeamGame(game);
   const insets = useSafeAreaInsets();
   const [selectedPoints, setSelectedPoints] = useState<Points | null>(null);
 
@@ -59,6 +64,8 @@ export default function TurnScreen({ route, navigation }: Props) {
     autoPick();
   }, [pickRemaining, game?.status, pickStartedAt]);
 
+  // Automatic and fired by every client, so a failure is logged rather than
+  // alerted — an alert would stack on each device and on each timer tick.
   const autoPick = async () => {
     await updateGame(
       gameId,
@@ -100,19 +107,19 @@ export default function TurnScreen({ route, navigation }: Props) {
         };
       },
       { base: game },
-    );
+    ).catch((e: unknown) => logWriteError('Η αυτόματη επιλογή', e));
   };
 
   useEffect(() => {
     if (!game) return;
     if (game.status === 'question') navigation.replace('Question', { gameId, playerId });
     if (game.status === 'finished') {
-      if (!game.winnerId) {
+      const dest = finishedDestination(game, playerId);
+      if (dest === 'Home') {
         navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
         return;
       }
-      const isWinner = game.winnerId === playerId;
-      navigation.replace(isWinner ? 'Winner' : 'Loser', { gameId, playerId });
+      navigation.replace(dest, { gameId, playerId });
     }
   }, [game?.status]);
 
@@ -127,7 +134,9 @@ export default function TurnScreen({ route, navigation }: Props) {
           text: 'Έξοδος',
           style: 'destructive',
           onPress: async () => {
-            await leaveGame(gameId, playerId, game);
+            // Leaving must never trap the player: if the write fails we say so
+            // and go Home anyway — the presence janitor removes them server-side.
+            await runGameWrite('Η έξοδος', () => leaveGame(gameId, playerId, game));
             leavePresence(gameId);
             navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
           },
@@ -190,7 +199,7 @@ export default function TurnScreen({ route, navigation }: Props) {
         };
       },
       { base: game },
-    );
+    ).catch((e: unknown) => reportWriteError('Η επιλογή κατηγορίας', e));
   };
 
   if (!game) return null;
@@ -219,7 +228,11 @@ export default function TurnScreen({ route, navigation }: Props) {
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <ScoreRow players={sortedPlayers} selfId={playerId} activePlayerId={activePlayerId} />
+        {teamGame ? (
+          <TeamScoreRow game={game} myTeamId={teamOf(game, playerId)?.id} />
+        ) : (
+          <ScoreRow players={sortedPlayers} selfId={playerId} activePlayerId={activePlayerId} />
+        )}
 
         {showPickTimer && (
           <View style={s.timerWrap}>

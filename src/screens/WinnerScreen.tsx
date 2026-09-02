@@ -13,6 +13,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../config/supabase';
 import { generateGameId } from '../utils/gameId';
 import { updateGame } from '../utils/updateGame';
+import { runGameWrite, reportWriteError } from '../utils/reportWriteError';
 import { WIN_SCORE } from '../utils/scoring';
 import { useGame } from '../hooks/useGame';
 import { leavePresence } from '../hooks/useGamePresence';
@@ -21,6 +22,16 @@ import { C, F, SHADOW } from '../theme';
 import { Blobs } from '../components/Blobs';
 import { Mascot } from '../components/Mascot';
 import { Avatar } from '../components/Avatar';
+import { TeamScoreRow } from '../components/TeamScoreRow';
+import {
+  effectiveLeaderId,
+  isTeamGame,
+  teamOf,
+  teamRosterOrder,
+  TEAM_COLORS,
+} from '../utils/teams';
+import { RoundHistory } from '../components/RoundHistory';
+import { SeriesWins } from '../components/SeriesWins';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Winner'>;
 
@@ -105,12 +116,21 @@ export default function WinnerScreen({ route, navigation }: Props) {
   const [creatingRematch, setCreatingRematch] = useState(false);
   const navigatedRef = useRef(false);
 
+  // Team mode wins are a side's, not a player's — `winnerId` stays null there.
+  const teamGame = isTeamGame(game);
+  const winningTeam = teamGame && game.winnerTeamId ? game.teams[game.winnerTeamId] : null;
   const winner = game?.winnerId ? game.players[game.winnerId] : null;
-  const isWinner = winner?.id === playerId;
+  const isWinner = teamGame
+    ? teamOf(game, playerId)?.id === game?.winnerTeamId
+    : winner?.id === playerId;
   const isHost = game?.players[playerId]?.isHost ?? false;
-  const sortedPlayers = game
-    ? Object.values(game.players).sort((a, b) => b.score - a.score)
-    : [];
+  const sortedPlayers = !game
+    ? []
+    : isTeamGame(game)
+      // `Player.score` stays 0 all game in team mode, so ranking on it would
+      // scatter teammates and show a column of zeroes.
+      ? teamRosterOrder(game, playerId)
+      : Object.values(game.players).sort((a, b) => b.score - a.score);
 
   // All players: auto-navigate when the host creates a rematch
   useEffect(() => {
@@ -141,11 +161,20 @@ export default function WinnerScreen({ route, navigation }: Props) {
       currentTurn: null,
       createdAt: Date.now(),
       winnerId: null,
+      winnerTeamId: null,
+      // Teams are re-drawn by `start_team_game` on every start, so a rematch
+      // carries the *mode* forward but never the previous split.
+      mode: game.mode ?? 'solo',
+      teams: null,
       rematchGameId: null,
       // Reset per rematch — carrying these over drains the question pool across
       // a few rematches and eventually starves picking (see PROJECT_STATUS.md §4.3 L7/L8).
       // A rematch is a fresh game, so repeats from a prior game are fine.
       usedQuestionIds: [],
+      roundHistory: [],
+      // The one thing a rematch *keeps*: the running series tally, which
+      // close_review bumped for the winner of the game that just ended.
+      seriesWins: game.seriesWins ?? {},
       winScore: game.winScore ?? WIN_SCORE,
       version: 0,
     };
@@ -156,12 +185,22 @@ export default function WinnerScreen({ route, navigation }: Props) {
     });
 
     if (error) {
+      // Silently clearing the flag left the button looking dead — say why.
       setCreatingRematch(false);
+      reportWriteError('Η ρεβάνς', error);
       return;
     }
 
     // Signal all players to follow by setting rematchGameId on the old game
-    await updateGame(gameId, (g) => (g.rematchGameId ? null : { ...g, rematchGameId: newGameId }), { base: game });
+    // The rematch row exists; this only tells the others to follow. If it fails
+    // the player who tapped is stuck on this screen, so clear the flag to allow
+    // a retry — the mutator is a no-op once `rematchGameId` is already set.
+    const { ok } = await runGameWrite('Η ρεβάνς', () =>
+      updateGame(gameId, (g) => (g.rematchGameId ? null : { ...g, rematchGameId: newGameId }), {
+        base: game,
+      }),
+    );
+    if (!ok) setCreatingRematch(false);
   };
 
   return (
@@ -176,15 +215,28 @@ export default function WinnerScreen({ route, navigation }: Props) {
       >
         <Mascot size={108} mood="cheer" />
 
-        <Text style={s.eyebrow}>{isWinner ? 'Κέρδισες!' : 'Νικητής'}</Text>
-        <Text style={s.winnerName}>{winner?.name ?? '—'}</Text>
+        <Text style={s.eyebrow}>{isWinner ? 'Κερδίσατε!' : 'Νικήτρια ομάδα'}</Text>
+        <Text
+          style={[
+            s.winnerName,
+            winningTeam ? { color: TEAM_COLORS[winningTeam.id] } : null,
+          ]}
+        >
+          {winningTeam ? winningTeam.name : (winner?.name ?? '—')}
+        </Text>
 
         <View style={s.scoreDisplay}>
-          <Text style={s.scoreBig}>{winner?.score ?? 0}</Text>
+          <Text style={s.scoreBig}>{winningTeam ? winningTeam.score : (winner?.score ?? 0)}</Text>
           <Text style={s.scoreLabel}>βαθμοί</Text>
         </View>
 
-        <Text style={s.rankingEyebrow}>Τελική Κατάταξη</Text>
+        {teamGame && game && (
+          <TeamScoreRow game={game} myTeamId={teamOf(game, playerId)?.id} />
+        )}
+
+        <Text style={s.rankingEyebrow}>
+          {teamGame ? 'Οι ομάδες' : 'Τελική Κατάταξη'}
+        </Text>
 
         {sortedPlayers.map((p, i) => (
           <View
@@ -192,7 +244,16 @@ export default function WinnerScreen({ route, navigation }: Props) {
             style={[s.playerRow, SHADOW.card, p.id === playerId && s.playerRowSelf]}
           >
             <View style={s.medalCol}>
-              {i < 3 ? (
+              {teamGame ? (
+                // Medals rank by score; in team mode there is no player score to
+                // rank. Mark the leader instead — the one whose answer scored.
+                <Text style={s.medalEmoji}>
+                  {isTeamGame(game) && teamOf(game, p.id) &&
+                  effectiveLeaderId(teamOf(game, p.id)!, game.players) === p.id
+                    ? '★'
+                    : ''}
+                </Text>
+              ) : i < 3 ? (
                 <Text style={s.medalEmoji}>{MEDALS[i]}</Text>
               ) : (
                 <Text style={s.rankNumber}>{i + 1}</Text>
@@ -203,9 +264,35 @@ export default function WinnerScreen({ route, navigation }: Props) {
               {p.name}
               {p.id === playerId ? ' (εσύ)' : ''}
             </Text>
-            <Text style={s.playerScore}>{p.score}</Text>
+            {teamGame ? (
+              <Text
+                style={[
+                  s.playerTeamTag,
+                  { color: TEAM_COLORS[teamOf(game, p.id)?.id ?? 'red'] },
+                ]}
+                numberOfLines={1}
+              >
+                {teamOf(game, p.id)?.name ?? '—'}
+              </Text>
+            ) : (
+              <Text style={s.playerScore}>{p.score}</Text>
+            )}
           </View>
         ))}
+
+        <SeriesWins
+          seriesWins={game?.seriesWins}
+          players={game?.players ?? {}}
+          selfId={playerId}
+        />
+
+        {game && (
+          <RoundHistory
+            history={game.roundHistory}
+            game={game}
+            selfId={isTeamGame(game) ? (teamOf(game, playerId)?.id ?? '') : playerId}
+          />
+        )}
 
         {isHost ? (
           <TouchableOpacity
@@ -307,6 +394,7 @@ const s = StyleSheet.create({
     color: C.ink,
     flex: 1,
   },
+  playerTeamTag: { fontFamily: F.sansBold, fontSize: 12 },
   playerScore: {
     fontFamily: F.display,
     fontSize: 22,

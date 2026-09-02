@@ -4,7 +4,7 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  FlatList,
+  ScrollView,
   ActivityIndicator,
   Alert,
   Share,
@@ -13,12 +13,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import QRCode from 'react-native-qrcode-svg';
 import * as Clipboard from 'expo-clipboard';
+import { SeriesWins } from '../components/SeriesWins';
+import { setGameMode, startTeamGame } from '../utils/gameRpc';
+import { canEnableTeams, MIN_TEAM_PLAYERS } from '../utils/teams';
 import { useGame } from '../hooks/useGame';
 import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
 import { shuffle } from '../utils/shuffle';
 import { leaveGame } from '../utils/leaveGame';
 import { updateGame } from '../utils/updateGame';
+import { runGameWrite } from '../utils/reportWriteError';
 import { WIN_SCORE, WIN_SCORE_OPTIONS } from '../utils/scoring';
+import { finishedDestination } from '../utils/gameFlow';
 import { RootStackParamList, Player } from '../types';
 import { C, F, SHADOW } from '../theme';
 import { Blobs } from '../components/Blobs';
@@ -35,6 +40,12 @@ export default function LobbyScreen({ route, navigation }: Props) {
 
   const deepLink = `quizapp://join/${gameId}`;
   const [copied, setCopied] = useState(false);
+  const [modePending, setModePending] = useState(false);
+
+  const mode = game?.mode ?? 'solo';
+  // The server re-checks this in set_game_mode and again in start_team_game —
+  // players join and leave while the host is deciding.
+  const teamsAllowed = canEnableTeams(players.length);
 
   useGamePresence(gameId, playerId, game ?? null);
 
@@ -56,8 +67,13 @@ export default function LobbyScreen({ route, navigation }: Props) {
     if (game.status === 'turn_reveal') {
       navigation.replace('TurnReveal', { gameId, playerId });
     }
-    if (game.status === 'finished' && !game.winnerId) {
-      navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+    if (game.status === 'finished') {
+      const dest = finishedDestination(game, playerId);
+      if (dest === 'Home') {
+        navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+      } else {
+        navigation.replace(dest, { gameId, playerId });
+      }
     }
   }, [game?.status]);
 
@@ -72,7 +88,9 @@ export default function LobbyScreen({ route, navigation }: Props) {
           text: 'Έξοδος',
           style: 'destructive',
           onPress: async () => {
-            await leaveGame(gameId, playerId, game);
+            // Leaving must never trap the player: if the write fails we say so
+            // and go Home anyway — the presence janitor removes them server-side.
+            await runGameWrite('Η έξοδος', () => leaveGame(gameId, playerId, game));
             leavePresence(gameId);
             navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
           },
@@ -85,26 +103,45 @@ export default function LobbyScreen({ route, navigation }: Props) {
 
   const handleSetWinScore = async (score: number) => {
     if (!game || !isHost || winScore === score) return;
-    await updateGame(
-      gameId,
-      (g) => (g.status !== 'lobby' ? null : { ...g, winScore: score }),
-      { base: game },
+    await runGameWrite('Η αλλαγή ορίου', () =>
+      updateGame(
+        gameId,
+        (g) => (g.status !== 'lobby' ? null : { ...g, winScore: score }),
+        { base: game },
+      ),
     );
+  };
+
+  const handleMode = async (next: 'solo' | 'teams') => {
+    if (!game || modePending || next === mode) return;
+    if (next === 'teams' && !teamsAllowed) return;
+    setModePending(true);
+    const { ok } = await runGameWrite('Η αλλαγή λειτουργίας', () => setGameMode(gameId, next));
+    setModePending(false);
+    if (!ok) return;
   };
 
   const handleStart = async () => {
     if (!game) return;
+    // Team mode starts through its own RPC: the split decides who leads, so the
+    // draw happens server-side rather than being posted by this client.
+    if (mode === 'teams') {
+      await runGameWrite('Η έναρξη', () => startTeamGame(gameId));
+      return;
+    }
     // `updateGame` primes the local cache on success, so the status-watching
     // effect above navigates to TurnReveal without waiting for the realtime echo
     // (which may never reach the writer).
-    await updateGame(
-      gameId,
-      (g) => {
-        if (g.status !== 'lobby') return null;
-        const shuffled = shuffle(Object.values(g.players).map((p) => p.id));
-        return { ...g, status: 'turn_reveal', turnOrder: shuffled, currentTurnIndex: 0 };
-      },
-      { base: game },
+    await runGameWrite('Η έναρξη', () =>
+      updateGame(
+        gameId,
+        (g) => {
+          if (g.status !== 'lobby') return null;
+          const shuffled = shuffle(Object.values(g.players).map((p) => p.id));
+          return { ...g, status: 'turn_reveal', turnOrder: shuffled, currentTurnIndex: 0 };
+        },
+        { base: game },
+      ),
     );
   };
 
@@ -141,10 +178,16 @@ export default function LobbyScreen({ route, navigation }: Props) {
     );
   }
 
+  // In team mode the lobby must also be even and at least 2v2, or the split
+  // would be uneven — start_team_game refuses it anyway.
+  const canStart = mode === 'teams' ? teamsAllowed : players.length >= 2;
+
   const hintText = isHost
-    ? players.length < 2
-      ? 'Περίμενε τουλάχιστον έναν ακόμα παίκτη...'
-      : 'Έτοιμοι! Πάτα Έναρξη για να ξεκινήσετε.'
+    ? mode === 'teams' && !teamsAllowed
+      ? `Οι ομάδες χρειάζονται ζυγό αριθμό παικτών (τουλάχιστον ${MIN_TEAM_PLAYERS})...`
+      : players.length < 2
+        ? 'Περίμενε τουλάχιστον έναν ακόμα παίκτη...'
+        : 'Έτοιμοι! Πάτα Έναρξη για να ξεκινήσετε.'
     : 'Αναμονή ξεκινήματος από τον δημιουργό...';
 
   return (
@@ -158,75 +201,128 @@ export default function LobbyScreen({ route, navigation }: Props) {
           <Text style={s.eyebrow}>Αίθουσα Αναμονής</Text>
           <View style={{ width: 38 }} />
         </View>
-        <Text style={s.title}>Έτοιμοι;</Text>
+        {/* Everything between the pinned header and the pinned action bar
+            scrolls. It used to be a plain flex column with only the player
+            FlatList able to scroll, so once the cards outgrew the screen the
+            Έναρξη button was pushed off with no way to reach it — which is what
+            happened as soon as SeriesWins started rendering (it is hidden until
+            the first game is won). */}
+        <ScrollView
+          style={s.scroll}
+          contentContainerStyle={s.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={s.title}>Έτοιμοι;</Text>
 
-        {/* Code + QR card — QR encodes the quizapp://join/ deep link so a generic phone camera opens the app (a raw code just triggers a web search); the in-app scanner accepts both forms */}
-        <View style={[s.card, SHADOW.card]}>
-          <View style={s.cardInner}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.cardEyebrow}>Κωδικός παιχνιδιού</Text>
-              <Text style={s.codeText}>{gameId}</Text>
+          {/* Code + QR card — QR encodes the quizapp://join/ deep link so a generic phone camera opens the app (a raw code just triggers a web search); the in-app scanner accepts both forms */}
+          <View style={[s.card, SHADOW.card]}>
+            <View style={s.cardInner}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.cardEyebrow}>Κωδικός παιχνιδιού</Text>
+                <Text style={s.codeText}>{gameId}</Text>
+              </View>
+              <View style={s.qrWrap}>
+                <QRCode
+                  value={deepLink}
+                  size={56}
+                  ecl="L"
+                  backgroundColor="#ffffff"
+                  color={C.bg}
+                />
+              </View>
             </View>
-            <View style={s.qrWrap}>
-              <QRCode
-                value={deepLink}
-                size={56}
-                ecl="L"
-                backgroundColor="#ffffff"
-                color={C.bg}
-              />
+            <View style={s.shareRow}>
+              <TouchableOpacity style={s.shareBtn} activeOpacity={0.75} onPress={handleCopy}>
+                <Text style={s.shareBtnText}>{copied ? '✓ Αντιγράφηκε' : '📋 Αντιγραφή'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.shareBtn} activeOpacity={0.75} onPress={handleShare}>
+                <Text style={s.shareBtnText}>📤 Κοινοποίηση</Text>
+              </TouchableOpacity>
             </View>
           </View>
-          <View style={s.shareRow}>
-            <TouchableOpacity style={s.shareBtn} activeOpacity={0.75} onPress={handleCopy}>
-              <Text style={s.shareBtnText}>{copied ? '✓ Αντιγράφηκε' : '📋 Αντιγραφή'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.shareBtn} activeOpacity={0.75} onPress={handleShare}>
-              <Text style={s.shareBtnText}>📤 Κοινοποίηση</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
 
-        {/* Target score — host picks, others see it read-only */}
-        <View style={[s.targetCard, SHADOW.card]}>
-          <Text style={s.cardEyebrow}>🎯 Όριο νίκης (βαθμοί)</Text>
-          <View style={s.segment}>
-            {WIN_SCORE_OPTIONS.map((opt) => {
-              const active = winScore === opt;
-              return (
-                <TouchableOpacity
-                  key={opt}
-                  style={[s.segmentBtn, active && s.segmentBtnActive]}
-                  activeOpacity={isHost ? 0.7 : 1}
-                  disabled={!isHost}
-                  onPress={() => handleSetWinScore(opt)}
-                >
-                  <Text style={[s.segmentText, active && s.segmentTextActive]}>{opt}</Text>
-                </TouchableOpacity>
-              );
-            })}
+          {/* Mode — host picks, others see it read-only */}
+          <View style={[s.targetCard, SHADOW.card]}>
+            <Text style={s.cardEyebrow}>👥 Λειτουργία</Text>
+            <View style={s.segment}>
+              {(['solo', 'teams'] as const).map((opt) => {
+                const active = mode === opt;
+                const blocked = opt === 'teams' && !teamsAllowed;
+                return (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[
+                      s.segmentBtn,
+                      active && s.segmentBtnActive,
+                      blocked && s.segmentBtnBlocked,
+                    ]}
+                    activeOpacity={isHost && !blocked ? 0.7 : 1}
+                    disabled={!isHost || blocked || modePending}
+                    onPress={() => handleMode(opt)}
+                  >
+                    <Text style={[s.segmentText, active && s.segmentTextActive]}>
+                      {opt === 'solo' ? 'Ατομικά' : 'Ομάδες'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {!isHost ? (
+              <Text style={s.targetHint}>Ορίζεται από τον δημιουργό</Text>
+            ) : !teamsAllowed ? (
+              <Text style={s.targetHint}>
+                Οι ομάδες χρειάζονται ζυγό αριθμό παικτών (τουλάχιστον {MIN_TEAM_PLAYERS})
+              </Text>
+            ) : mode === 'teams' ? (
+              <Text style={s.targetHint}>
+                Δύο ισάριθμες ομάδες, ένας αρχηγός η καθεμία — κληρώνονται στην έναρξη
+              </Text>
+            ) : null}
           </View>
-          {!isHost && <Text style={s.targetHint}>Ορίζεται από τον δημιουργό</Text>}
-        </View>
 
-        {/* Players header row */}
-        <View style={s.playersHeader}>
-          <Text style={s.eyebrowLeft}>Παίκτες ({players.length})</Text>
-          <View style={s.liveChip}>
-            <Text style={s.liveChipText}>●  Live</Text>
+          {/* Target score — host picks, others see it read-only */}
+          <View style={[s.targetCard, SHADOW.card]}>
+            <Text style={s.cardEyebrow}>🎯 Όριο νίκης (βαθμοί)</Text>
+            <View style={s.segment}>
+              {WIN_SCORE_OPTIONS.map((opt) => {
+                const active = winScore === opt;
+                return (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[s.segmentBtn, active && s.segmentBtnActive]}
+                    activeOpacity={isHost ? 0.7 : 1}
+                    disabled={!isHost}
+                    onPress={() => handleSetWinScore(opt)}
+                  >
+                    <Text style={[s.segmentText, active && s.segmentTextActive]}>{opt}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {!isHost && <Text style={s.targetHint}>Ορίζεται από τον δημιουργό</Text>}
           </View>
-        </View>
 
-        {/* Player list */}
-        <FlatList
-          data={players}
-          keyExtractor={(item) => item.id}
-          style={s.list}
-          contentContainerStyle={{ paddingBottom: 8 }}
-          renderItem={({ item }: { item: Player }) => {
+          <SeriesWins
+            seriesWins={game?.seriesWins}
+            players={game?.players ?? {}}
+            selfId={playerId}
+          />
+
+          {/* Players header row */}
+          <View style={s.playersHeader}>
+            <Text style={s.eyebrowLeft}>Παίκτες ({players.length})</Text>
+            <View style={s.liveChip}>
+              <Text style={s.liveChipText}>●  Live</Text>
+            </View>
+          </View>
+
+          {/* Player list — a plain map, not a FlatList: the lobby holds at most
+              12 players, and nesting a VirtualizedList inside a ScrollView breaks
+              virtualization and warns. */}
+          {players.map((item: Player) => {
             const isSelf = item.id === playerId;
             return (
-              <View style={[s.playerRow, SHADOW.card, isSelf && s.playerRowSelf]}>
+              <View key={item.id} style={[s.playerRow, SHADOW.card, isSelf && s.playerRowSelf]}>
                 <Avatar name={item.name} size={38} />
                 <View style={s.playerInfo}>
                   <Text style={s.playerName} numberOfLines={1}>
@@ -236,40 +332,39 @@ export default function LobbyScreen({ route, navigation }: Props) {
                     {item.isHost ? '👑 Δημιουργός' : 'Έτοιμος'}
                   </Text>
                 </View>
-                {!item.isHost && (
-                  <View style={s.greenDot} />
-                )}
+                {!item.isHost && <View style={s.greenDot} />}
               </View>
             );
-          }}
-          ListFooterComponent={
-            <View style={s.emptySlot}>
-              <Text style={s.emptySlotText}>+ Περιμένουμε κι άλλους...</Text>
-            </View>
-          }
-        />
+          })}
 
-        <Text style={s.hint}>{hintText}</Text>
-
-        {isHost && (
-          <View style={{ width: '100%', marginBottom: 16, gap: 10 }}>
-            <View>
-              <TouchableOpacity
-                style={[s.primaryBtn, players.length < 2 && s.disabled]}
-                disabled={players.length < 2}
-                onPress={handleStart}
-                activeOpacity={0.85}
-              >
-                <Text style={s.primaryBtnText}>▶  Έναρξη Παιχνιδιού</Text>
-              </TouchableOpacity>
-              <View style={s.primaryBtnShadow} />
-            </View>
-            {/* DEV ONLY — delete before release */}
-            <TouchableOpacity style={s.devBtn} onPress={handleStart} activeOpacity={0.75}>
-              <Text style={s.devBtnText}>🛠 Solo Test (DEV)</Text>
-            </TouchableOpacity>
+          <View style={s.emptySlot}>
+            <Text style={s.emptySlotText}>+ Περιμένουμε κι άλλους...</Text>
           </View>
-        )}
+        </ScrollView>
+
+        <View style={s.footer}>
+          <Text style={s.hint}>{hintText}</Text>
+
+          {isHost && (
+            <View style={{ width: '100%', marginBottom: 16, gap: 10 }}>
+              <View>
+                <TouchableOpacity
+                  style={[s.primaryBtn, !canStart && s.disabled]}
+                  disabled={!canStart}
+                  onPress={handleStart}
+                  activeOpacity={0.85}
+                >
+                  <Text style={s.primaryBtnText}>▶  Έναρξη Παιχνιδιού</Text>
+                </TouchableOpacity>
+                <View style={s.primaryBtnShadow} />
+              </View>
+              {/* DEV ONLY — delete before release */}
+              <TouchableOpacity style={s.devBtn} onPress={handleStart} activeOpacity={0.75}>
+                <Text style={s.devBtnText}>🛠 Solo Test (DEV)</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -412,6 +507,7 @@ const s = StyleSheet.create({
     backgroundColor: C.bg,
     alignItems: 'center',
   },
+  segmentBtnBlocked: { opacity: 0.35 },
   segmentBtnActive: {
     backgroundColor: C.primary,
     borderColor: C.primaryDark,
@@ -456,7 +552,10 @@ const s = StyleSheet.create({
     color: C.greenFg,
   },
 
-  list: { flex: 1 },
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 12 },
+  // Pinned: the primary action must never be scrolled out of reach.
+  footer: { paddingTop: 4 },
   playerRow: {
     flexDirection: 'row',
     alignItems: 'center',

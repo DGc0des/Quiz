@@ -12,6 +12,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../config/supabase';
 import { generateGameId } from '../utils/gameId';
 import { updateGame } from '../utils/updateGame';
+import { runGameWrite, reportWriteError } from '../utils/reportWriteError';
 import { WIN_SCORE } from '../utils/scoring';
 import { useGame } from '../hooks/useGame';
 import { leavePresence } from '../hooks/useGamePresence';
@@ -20,6 +21,16 @@ import { C, F, SHADOW } from '../theme';
 import { Blobs } from '../components/Blobs';
 import { Mascot } from '../components/Mascot';
 import { Avatar } from '../components/Avatar';
+import { TeamScoreRow } from '../components/TeamScoreRow';
+import {
+  effectiveLeaderId,
+  isTeamGame,
+  teamOf,
+  teamRosterOrder,
+  TEAM_COLORS,
+} from '../utils/teams';
+import { RoundHistory } from '../components/RoundHistory';
+import { SeriesWins } from '../components/SeriesWins';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Loser'>;
 
@@ -33,14 +44,30 @@ export default function LoserScreen({ route, navigation }: Props) {
   const navigatedRef = useRef(false);
 
   const isHost = game?.players[playerId]?.isHost ?? false;
-  const sortedPlayers = game
-    ? Object.values(game.players).sort((a, b) => b.score - a.score)
-    : [];
+  const sortedPlayers = !game
+    ? []
+    : isTeamGame(game)
+      // `Player.score` stays 0 all game in team mode, so ranking on it would
+      // scatter teammates and show a column of zeroes.
+      ? teamRosterOrder(game, playerId)
+      : Object.values(game.players).sort((a, b) => b.score - a.score);
 
   const me = game?.players[playerId];
   const myRank = sortedPlayers.findIndex((p) => p.id === playerId) + 1;
   const winner = sortedPlayers[0];
-  const gap = winner && me ? winner.score - me.score : 0;
+
+  // Team mode: the placement chip and the gap are about the *sides*, since a
+  // player's own score is never banked there.
+  const teamGame = isTeamGame(game);
+  const myTeam = teamOf(game, playerId);
+  const winningTeam = teamGame && game.winnerTeamId ? game.teams[game.winnerTeamId] : null;
+  const gap = teamGame
+    ? winningTeam && myTeam
+      ? winningTeam.score - myTeam.score
+      : 0
+    : winner && me
+      ? winner.score - me.score
+      : 0;
 
   const placeLabel =
     myRank === 2
@@ -76,11 +103,20 @@ export default function LoserScreen({ route, navigation }: Props) {
       currentTurn: null,
       createdAt: Date.now(),
       winnerId: null,
+      winnerTeamId: null,
+      // Teams are re-drawn by `start_team_game` on every start, so a rematch
+      // carries the *mode* forward but never the previous split.
+      mode: game.mode ?? 'solo',
+      teams: null,
       rematchGameId: null,
       // Reset per rematch — carrying these over drains the question pool across
       // a few rematches and eventually starves picking (see PROJECT_STATUS.md §4.3 L7/L8).
       // A rematch is a fresh game, so repeats from a prior game are fine.
       usedQuestionIds: [],
+      roundHistory: [],
+      // The one thing a rematch *keeps*: the running series tally, which
+      // close_review bumped for the winner of the game that just ended.
+      seriesWins: game.seriesWins ?? {},
       winScore: game.winScore ?? WIN_SCORE,
       version: 0,
     };
@@ -91,11 +127,21 @@ export default function LoserScreen({ route, navigation }: Props) {
     });
 
     if (error) {
+      // Silently clearing the flag left the button looking dead — say why.
       setCreatingRematch(false);
+      reportWriteError('Η ρεβάνς', error);
       return;
     }
 
-    await updateGame(gameId, (g) => (g.rematchGameId ? null : { ...g, rematchGameId: newGameId }), { base: game });
+    // The rematch row exists; this only tells the others to follow. If it fails
+    // the player who tapped is stuck on this screen, so clear the flag to allow
+    // a retry — the mutator is a no-op once `rematchGameId` is already set.
+    const { ok } = await runGameWrite('Η ρεβάνς', () =>
+      updateGame(gameId, (g) => (g.rematchGameId ? null : { ...g, rematchGameId: newGameId }), {
+        base: game,
+      }),
+    );
+    if (!ok) setCreatingRematch(false);
   };
 
   return (
@@ -113,18 +159,36 @@ export default function LoserScreen({ route, navigation }: Props) {
         <Text style={s.headline}>Καλή προσπάθεια!</Text>
 
         {/* placement chip */}
-        <View style={s.placementChip}>
-          <Text style={s.placementLabel}>Τερμάτισες</Text>
-          <Text style={s.placementRank}>{placeLabel}</Text>
-          <Text style={s.placementScore}>· {me?.score ?? 0} βαθμοί</Text>
-        </View>
+        {teamGame ? (
+          <>
+            <View style={s.placementChip}>
+              <Text style={s.placementLabel}>Η ομάδα σου</Text>
+              <Text
+                style={[
+                  s.placementRank,
+                  myTeam ? { color: TEAM_COLORS[myTeam.id] } : null,
+                ]}
+              >
+                {myTeam?.name ?? '—'}
+              </Text>
+              <Text style={s.placementScore}>· {myTeam?.score ?? 0} βαθμοί</Text>
+            </View>
+            {game && <TeamScoreRow game={game} myTeamId={myTeam?.id} />}
+          </>
+        ) : (
+          <View style={s.placementChip}>
+            <Text style={s.placementLabel}>Τερμάτισες</Text>
+            <Text style={s.placementRank}>{placeLabel}</Text>
+            <Text style={s.placementScore}>· {me?.score ?? 0} βαθμοί</Text>
+          </View>
+        )}
 
         {/* encouraging gap line */}
-        {gap > 0 && winner && (
+        {gap > 0 && (winningTeam || winner) && (
           <Text style={s.gapText}>
             Την επόμενη φορά!{' '}
             <Text style={s.gapHighlight}>
-              {winner.name} +{gap}
+              {winningTeam ? winningTeam.name : winner.name} +{gap}
             </Text>
           </Text>
         )}
@@ -137,7 +201,16 @@ export default function LoserScreen({ route, navigation }: Props) {
             style={[s.playerRow, SHADOW.card, p.id === playerId && s.playerRowSelf]}
           >
             <View style={s.medalCol}>
-              {i < 3 ? (
+              {teamGame ? (
+                // Medals rank by score; in team mode there is no player score to
+                // rank. Mark the leader instead — the one whose answer scored.
+                <Text style={s.medalEmoji}>
+                  {isTeamGame(game) && teamOf(game, p.id) &&
+                  effectiveLeaderId(teamOf(game, p.id)!, game.players) === p.id
+                    ? '★'
+                    : ''}
+                </Text>
+              ) : i < 3 ? (
                 <Text style={s.medalEmoji}>{MEDALS[i]}</Text>
               ) : (
                 <Text style={s.rankNumber}>{i + 1}</Text>
@@ -148,9 +221,35 @@ export default function LoserScreen({ route, navigation }: Props) {
               {p.name}
               {p.id === playerId ? ' (εσύ)' : ''}
             </Text>
-            <Text style={s.playerScore}>{p.score}</Text>
+            {teamGame ? (
+              <Text
+                style={[
+                  s.playerTeamTag,
+                  { color: TEAM_COLORS[teamOf(game, p.id)?.id ?? 'red'] },
+                ]}
+                numberOfLines={1}
+              >
+                {teamOf(game, p.id)?.name ?? '—'}
+              </Text>
+            ) : (
+              <Text style={s.playerScore}>{p.score}</Text>
+            )}
           </View>
         ))}
+
+        <SeriesWins
+          seriesWins={game?.seriesWins}
+          players={game?.players ?? {}}
+          selfId={playerId}
+        />
+
+        {game && (
+          <RoundHistory
+            history={game.roundHistory}
+            game={game}
+            selfId={isTeamGame(game) ? (teamOf(game, playerId)?.id ?? '') : playerId}
+          />
+        )}
 
         {isHost ? (
           <TouchableOpacity
@@ -287,6 +386,7 @@ const s = StyleSheet.create({
     color: C.ink,
     flex: 1,
   },
+  playerTeamTag: { fontFamily: F.sansBold, fontSize: 12 },
   playerScore: {
     fontFamily: F.display,
     fontSize: 22,

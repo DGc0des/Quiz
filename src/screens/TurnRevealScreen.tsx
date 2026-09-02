@@ -6,18 +6,22 @@ import { useGame } from '../hooks/useGame';
 import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
 import { leaveGame } from '../utils/leaveGame';
 import { updateGame } from '../utils/updateGame';
+import { runGameWrite, logWriteError } from '../utils/reportWriteError';
 import { RootStackParamList } from '../types';
 import { C, F, SHADOW } from '../theme';
 import { Blobs } from '../components/Blobs';
 import { Mascot } from '../components/Mascot';
 import { Avatar } from '../components/Avatar';
 import { ScoreRow } from '../components/ScoreRow';
+import { TeamScoreRow } from '../components/TeamScoreRow';
+import { isTeamGame, teamOf } from '../utils/teams';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TurnReveal'>;
 
 export default function TurnRevealScreen({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
   const { game } = useGame(gameId);
+  const teamGame = isTeamGame(game);
   const insets = useSafeAreaInsets();
   const isHost = game?.players[playerId]?.isHost ?? false;
   const animatedValues = useRef<Animated.Value[]>([]);
@@ -49,6 +53,12 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
         // below navigates to Turn on its own (no reliance on the realtime echo,
         // which may not reach the writer — fatal in solo play where the host
         // drives every transition).
+        //
+        // Automatic (host-driven, on a timeout), so a failure is logged rather
+        // than alerted: an alert here would land behind the reveal animation
+        // with nothing the player could do about it. The `catch` still matters —
+        // without it a failing RPC is an unhandled rejection and the screen just
+        // sits there (PROJECT_STATUS.md §4.2 C3).
         updateGame(
           gameId,
           (g) => {
@@ -70,7 +80,7 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
             };
           },
           { base: game },
-        );
+        ).catch((e: unknown) => logWriteError('Η έναρξη γύρου', e));
       }, 1500);
     });
 
@@ -99,7 +109,9 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
           text: 'Έξοδος',
           style: 'destructive',
           onPress: async () => {
-            await leaveGame(gameId, playerId, game);
+            // Leaving must never trap the player: if the write fails we say so
+            // and go Home anyway — the presence janitor removes them server-side.
+            await runGameWrite('Η έξοδος', () => leaveGame(gameId, playerId, game));
             leavePresence(gameId);
             navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
           },
@@ -119,7 +131,11 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
         <Text style={s.leaveBtnText}>×</Text>
       </TouchableOpacity>
       <View style={s.scoreRowWrap}>
-        <ScoreRow players={players} selfId={playerId} />
+        {teamGame ? (
+          <TeamScoreRow game={game} myTeamId={teamOf(game, playerId)?.id} />
+        ) : (
+          <ScoreRow players={players} selfId={playerId} />
+        )}
       </View>
       <View style={s.container}>
         <Mascot size={88} mood="think" />

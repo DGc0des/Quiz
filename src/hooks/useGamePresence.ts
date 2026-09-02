@@ -1,6 +1,7 @@
 import { useEffect, useRef, MutableRefObject } from 'react';
 import { supabase } from '../config/supabase';
 import { leaveGame } from '../utils/leaveGame';
+import { logWriteError } from '../utils/reportWriteError';
 import { Game } from '../types';
 
 // Module-level: one channel per gameId so navigating between screens never drops the connection.
@@ -42,7 +43,11 @@ function ensureChannel(
         .filter((p) => p.id !== leavingId)
         .sort((a, b) => a.joinedAt - b.joinedAt || (a.id < b.id ? -1 : 1));
       if (survivors[0]?.id !== state.playerId) return; // someone else will clean up
-      leaveGame(gameId, leavingId, g);
+      // Background cleanup on someone else's behalf — log a failure, never alert:
+      // the player never asked for this write and can do nothing about it.
+      leaveGame(gameId, leavingId, g).catch((e: unknown) =>
+        logWriteError('Ο καθαρισμός παίκτη', e),
+      );
     })
     .subscribe(async (status) => {
       if (status === 'SUBSCRIBED') {

@@ -21,12 +21,18 @@ import { useTimer } from '../hooks/useTimer';
 import { getQuestionById } from '../data/questions';
 import { leaveGame } from '../utils/leaveGame';
 import { updateGame } from '../utils/updateGame';
+import { submitAnswer, ensureRoundAdvanced, useFifty } from '../utils/gameRpc';
+import { runGameWrite, reportWriteError, logWriteError } from '../utils/reportWriteError';
 import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
+import { finishedDestination } from '../utils/gameFlow';
 import { RootStackParamList } from '../types';
 import { C, F, SHADOW, CATEGORY_META } from '../theme';
 import { Blobs } from '../components/Blobs';
 import { Avatar } from '../components/Avatar';
+import { TeamPanel } from '../components/TeamPanel';
+import { isTeamGame, isTeamLeader, teamOf } from '../utils/teams';
 import { ScoreRow } from '../components/ScoreRow';
+import { TeamScoreRow } from '../components/TeamScoreRow';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Question'>;
 
@@ -47,6 +53,7 @@ export default function QuestionScreen({ route, navigation }: Props) {
   const [numericInput, setNumericInput] = useState('');
   const [answered, setAnswered] = useState(false);
   const [visibleOptions, setVisibleOptions] = useState<number[] | null>(null);
+  const [fiftyPending, setFiftyPending] = useState(false);
   const [doubleActive, setDoubleActive] = useState(false);
   const [stealMode, setStealMode] = useState(false);
   const [stealTargetId, setStealTargetId] = useState<string | null>(null);
@@ -58,8 +65,22 @@ export default function QuestionScreen({ route, navigation }: Props) {
   useGamePresence(gameId, playerId, game ?? null);
 
   const player = game?.players[playerId];
-  const canFifty = !(player?.usedHelps?.fifty ?? false) && visibleOptions === null;
-  const canSteal = !(player?.usedHelps?.steal ?? false) && stealTargetId === null && !stealMode;
+  // Team mode: only the leader's answer scores; everyone else advises.
+  const teamGame = isTeamGame(game);
+  const myTeam = teamOf(game, playerId);
+  const iAmLeader = isTeamLeader(game, playerId);
+  const canFifty =
+    !(player?.usedHelps?.fifty ?? false) && visibleOptions === null && !fiftyPending;
+  // Steal is choice-only: on a numeric round it would hand over the target's
+  // exact number, so the button is not rendered and this stays false.
+  const canSteal =
+    !isNumeric &&
+    // A teammate's steal would replace an answer that never scores, spending
+    // the help for nothing — submit_answer refuses it as `leader_only`.
+    (!teamGame || iAmLeader) &&
+    !(player?.usedHelps?.steal ?? false) &&
+    stealTargetId === null &&
+    !stealMode;
   const canDouble = !(player?.usedHelps?.double ?? false) && !doubleActive;
   const canSabotage = !(player?.usedHelps?.sabotage ?? false) && !sabotageActivated && !sabotageMode;
   const otherPlayers = Object.values(game?.players ?? {}).filter((p) => p.id !== playerId);
@@ -80,12 +101,12 @@ export default function QuestionScreen({ route, navigation }: Props) {
     if (game.status === 'reviewing') navigation.replace('Result', { gameId, playerId });
     if (game.status === 'picking') navigation.replace('Turn', { gameId, playerId });
     if (game.status === 'finished') {
-      if (!game.winnerId) {
+      const dest = finishedDestination(game, playerId);
+      if (dest === 'Home') {
         navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
         return;
       }
-      const isWinner = game.winnerId === playerId;
-      navigation.replace(isWinner ? 'Winner' : 'Loser', { gameId, playerId });
+      navigation.replace(dest, { gameId, playerId });
     }
   }, [game?.status]);
 
@@ -100,7 +121,9 @@ export default function QuestionScreen({ route, navigation }: Props) {
           text: 'Έξοδος',
           style: 'destructive',
           onPress: async () => {
-            await leaveGame(gameId, playerId, game);
+            // Leaving must never trap the player: if the write fails we say so
+            // and go Home anyway — the presence janitor removes them server-side.
+            await runGameWrite('Η έξοδος', () => leaveGame(gameId, playerId, game));
             leavePresence(gameId);
             navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
           },
@@ -109,111 +132,47 @@ export default function QuestionScreen({ route, navigation }: Props) {
     );
   };
 
-  // Record this player's answer and, if everyone is now in, flip the turn to
-  // reviewing — all in one version-guarded write so a concurrent answer/help
-  // can never be clobbered.
-  const submitAnswer = async (index: number | null) => {
-    if (!question || question.type === 'numeric') return;
-    const correctIndex = question.correctIndex;
-    await updateGame(
-      gameId,
-      (g) => {
-        const ct = g.currentTurn;
-        if (!ct || g.status !== 'question') return null;
-        if (playerId in ct.answers) return null; // already answered
-        const answers = {
-          ...ct.answers,
-          [playerId]: {
-            playerId,
-            answerIndex: index,
-            isCorrect: index === correctIndex,
-            answeredAt: Date.now(),
-          },
-        };
-        const allAnswered = Object.keys(g.players).every((id) => id in answers);
-        return {
-          ...g,
-          status: allAnswered ? 'reviewing' : g.status,
-          currentTurn: {
-            ...ct,
-            answers,
-            status: allAnswered ? 'reviewing' : ct.status,
-            // Re-stamp on the flip to reviewing so ResultScreen's review timer
-            // counts from now (timerStartedAt is reused across phases).
-            timerStartedAt: allAnswered ? Date.now() : ct.timerStartedAt,
-          },
-        };
-      },
-      { base: game },
-    );
-    // No explicit navigation: `updateGame` primes the cache, so the
-    // status-watching effect above moves us to Result when the turn flips to
-    // 'reviewing'.
+  // Answers go through the server: it holds the answer key and decides
+  // `isCorrect` (see 0006_authoritative_scoring.sql). When this is the last
+  // answer of the round the same call resolves and reveals it, flipping the
+  // status to 'reviewing'.
+  //
+  // No explicit navigation here — the RPC wrapper primes the shared cache, so
+  // the status-watching effect above moves us to Result on its own.
+  //
+  // Both return whether the answer actually landed. The caller has already set
+  // `answered` optimistically, and must roll that back on a failure — otherwise
+  // a failed submit locks the player out of a round they never answered.
+  const submitChoice = async (index: number | null) => {
+    if (!question || question.type === 'numeric') return false;
+    const { ok } = await runGameWrite('Η απάντηση', () => submitAnswer(gameId, { index }));
+    return ok;
   };
 
-  // Record a numeric ('closest wins') answer. Mirrors submitAnswer's atomic
-  // answer-then-maybe-flip write. `isCorrect` is left false here — who's closest
-  // is a relative result computed at review time (see scoring.resolveForScoring).
   const submitNumeric = async (value: number | null) => {
-    await updateGame(
-      gameId,
-      (g) => {
-        const ct = g.currentTurn;
-        if (!ct || g.status !== 'question') return null;
-        if (playerId in ct.answers) return null; // already answered
-        const answers = {
-          ...ct.answers,
-          [playerId]: {
-            playerId,
-            answerIndex: null,
-            answerValue: value,
-            isCorrect: false,
-            answeredAt: Date.now(),
-          },
-        };
-        const allAnswered = Object.keys(g.players).every((id) => id in answers);
-        return {
-          ...g,
-          status: allAnswered ? 'reviewing' : g.status,
-          currentTurn: {
-            ...ct,
-            answers,
-            status: allAnswered ? 'reviewing' : ct.status,
-            timerStartedAt: allAnswered ? Date.now() : ct.timerStartedAt,
-          },
-        };
-      },
-      { base: game },
-    );
-    // Navigation handled by the status-watching effect (see submitAnswer).
+    const { ok } = await runGameWrite('Η απάντηση', () => submitAnswer(gameId, { value }));
+    return ok;
   };
 
-  // On timer expiry for a player who already answered: advance only if everyone
-  // is in (e.g. the last answer was a steal that landed concurrently).
+  // On timer expiry for a player who already answered: the round may have become
+  // complete without a new answer (someone left mid-question), so ask the server
+  // to close it if everyone remaining is in.
+  // Automatic and fired by every client that is already in, so a failure is
+  // logged rather than alerted.
   const advanceIfAllAnswered = async () => {
-    await updateGame(
-      gameId,
-      (g) => {
-        const ct = g.currentTurn;
-        if (!ct || g.status !== 'question') return null;
-        const allAnswered = Object.keys(g.players).every((id) => id in ct.answers);
-        if (!allAnswered) return null;
-        return {
-          ...g,
-          status: 'reviewing',
-          currentTurn: { ...ct, status: 'reviewing', timerStartedAt: Date.now() },
-        };
-      },
-      { base: game },
+    await ensureRoundAdvanced(gameId).catch((e: unknown) =>
+      logWriteError('Το κλείσιμο του γύρου', e),
     );
-    // Navigation handled by the status-watching effect (see submitAnswer).
   };
 
   const handleAnswer = async (index: number) => {
     if (answered || !question) return;
     setAnswered(true);
     setSelectedIndex(index);
-    await submitAnswer(index);
+    if (!(await submitChoice(index))) {
+      setAnswered(false);
+      setSelectedIndex(null);
+    }
   };
 
   const handleNumericSubmit = async () => {
@@ -221,7 +180,7 @@ export default function QuestionScreen({ route, navigation }: Props) {
     const val = parseFloat(numericInput.replace(',', '.'));
     if (Number.isNaN(val)) return;
     setAnswered(true);
-    await submitNumeric(val);
+    if (!(await submitNumeric(val))) setAnswered(false);
   };
 
   useEffect(() => {
@@ -231,14 +190,18 @@ export default function QuestionScreen({ route, navigation }: Props) {
       setStealMode(false);
       setSabotageMode(false);
       setAnswered(true);
+      // Fires once per round (guarded by `timerFired`) and there is no other
+      // actor to cover it for this player, so a failure is worth an alert.
       if (isNumeric) submitNumeric(null);
-      else submitAnswer(null);
+      else submitChoice(null);
     } else {
       advanceIfAllAnswered();
     }
   }, [remaining]);
 
-  const updateHelpInDB = async (helpType: 'fifty' | 'double') => {
+  // Double needs no answer key, so it still goes through the validated write
+  // path. (50/50 does need one — see handleFifty.)
+  const useDouble = async () => {
     await updateGame(
       gameId,
       (g) => {
@@ -252,19 +215,14 @@ export default function QuestionScreen({ route, navigation }: Props) {
             usedHelps: {
               fifty: prevPlayer.usedHelps?.fifty ?? false,
               steal: prevPlayer.usedHelps?.steal ?? false,
-              double: prevPlayer.usedHelps?.double ?? false,
               sabotage: prevPlayer.usedHelps?.sabotage ?? false,
-              [helpType]: true,
+              double: true,
             },
           },
         };
         const activeHelps = {
           ...(ct.activeHelps ?? {}),
-          [playerId]: {
-            ...(ct.activeHelps?.[playerId] ?? {}),
-            ...(helpType === 'double' ? { double: true } : {}),
-            ...(helpType === 'fifty' ? { fifty: true } : {}),
-          },
+          [playerId]: { ...(ct.activeHelps?.[playerId] ?? {}), double: true },
         };
         return { ...g, players, currentTurn: { ...ct, activeHelps } };
       },
@@ -272,18 +230,35 @@ export default function QuestionScreen({ route, navigation }: Props) {
     );
   };
 
+  // 50/50 is a server call: choosing two *wrong* options needs the answer key,
+  // which the app no longer ships. Unlike the other helps it is therefore not
+  // instant, so the button shows a pending state and stays disabled until the
+  // eliminated options come back.
   const handleFifty = async () => {
-    if (!question || question.type === 'numeric' || !canFifty) return;
-    const wrongIndices = [0, 1, 2, 3].filter((i) => i !== question.correctIndex);
-    const keepWrong = wrongIndices[Math.floor(Math.random() * wrongIndices.length)];
-    setVisibleOptions([question.correctIndex, keepWrong].sort((a, b) => a - b));
-    await updateHelpInDB('fifty');
+    if (!question || question.type === 'numeric' || !canFifty || fiftyPending) return;
+    setFiftyPending(true);
+    try {
+      // `ok` here is the RPC's own refusal (help already used, wrong status);
+      // a thrown error is a transport/permission failure and is reported.
+      const { ok, value } = await runGameWrite('Το 50/50', () => useFifty(gameId));
+      if (ok && value?.ok) {
+        const hidden = value.hidden;
+        setVisibleOptions([0, 1, 2, 3].filter((i) => !hidden.includes(i)));
+      }
+    } finally {
+      setFiftyPending(false);
+    }
   };
 
   const handleDouble = async () => {
     if (!canDouble) return;
     setDoubleActive(true);
-    await updateHelpInDB('double');
+    // Roll the button back if the write never landed, or the player has burned
+    // a help they never got to use.
+    await useDouble().catch((e: unknown) => {
+      setDoubleActive(false);
+      reportWriteError('Το Διπλό', e);
+    });
   };
 
   const handleStealPress = () => {
@@ -296,51 +271,18 @@ export default function QuestionScreen({ route, navigation }: Props) {
     setStealTargetId(targetId);
     setAnswered(true);
 
-    await updateGame(
-      gameId,
-      (g) => {
-        const ct = g.currentTurn;
-        if (!ct || g.status !== 'question') return null;
-        if (playerId in ct.answers) return null; // already answered
-        const prevPlayer = g.players[playerId];
-        const players = {
-          ...g.players,
-          [playerId]: {
-            ...prevPlayer,
-            usedHelps: {
-              fifty: prevPlayer.usedHelps?.fifty ?? false,
-              steal: true,
-              double: prevPlayer.usedHelps?.double ?? false,
-              sabotage: prevPlayer.usedHelps?.sabotage ?? false,
-            },
-          },
-        };
-        const answers = {
-          ...ct.answers,
-          [playerId]: {
-            playerId,
-            answerIndex: null,
-            isCorrect: false,
-            answeredAt: Date.now(),
-            stolenFrom: targetId,
-          },
-        };
-        const allAnswered = Object.keys(players).every((id) => id in answers);
-        return {
-          ...g,
-          players,
-          status: allAnswered ? 'reviewing' : g.status,
-          currentTurn: {
-            ...ct,
-            answers,
-            status: allAnswered ? 'reviewing' : ct.status,
-            timerStartedAt: allAnswered ? Date.now() : ct.timerStartedAt,
-          },
-        };
-      },
-      { base: game },
+    // A steal records only the pointer; whose answer it becomes is settled
+    // during server-side resolution, so the stealer never learns the target's
+    // answer while the round is live. The RPC marks the help used in the same
+    // transaction.
+    const { ok } = await runGameWrite('Η κλοπή', () =>
+      submitAnswer(gameId, { stolenFrom: targetId }),
     );
-    // Navigation handled by the status-watching effect (see submitAnswer).
+    if (!ok) {
+      setStealTargetId(null);
+      setAnswered(false);
+    }
+    // Navigation handled by the status-watching effect (see submitChoice).
   };
 
   const handleSabotagePress = () => {
@@ -380,7 +322,10 @@ export default function QuestionScreen({ route, navigation }: Props) {
         return { ...g, players, currentTurn: { ...ct, activeHelps } };
       },
       { base: game },
-    );
+    ).catch((e: unknown) => {
+      setSabotageActivated(false);
+      reportWriteError('Το Σαμποτάζ', e);
+    });
   };
 
   // ── Animated refs ──
@@ -536,11 +481,15 @@ export default function QuestionScreen({ route, navigation }: Props) {
         <Text style={s.leaveBtnText}>×</Text>
       </TouchableOpacity>
       <View style={s.scoreRowWrap}>
+        {teamGame && game ? (
+          <TeamScoreRow game={game} myTeamId={myTeam?.id} />
+        ) : (
         <ScoreRow
           players={Object.values(game.players)}
           selfId={playerId}
           activePlayerId={turn?.activePlayerId}
         />
+        )}
       </View>
 
       {/* ── STEAL OVERLAY: flying fist + impact ring ── */}
@@ -690,6 +639,16 @@ export default function QuestionScreen({ route, navigation }: Props) {
           keyboardShouldPersistTaps="handled"
         >
 
+        {teamGame && myTeam && game && !stealMode && !sabotageMode && (
+          <TeamPanel
+            game={game}
+            team={myTeam}
+            playerId={playerId}
+            isLeader={iAmLeader}
+            answers={turn?.answers ?? {}}
+          />
+        )}
+
         {/* Help buttons — visible only before answering and outside pickers */}
         {!answered && !stealMode && !sabotageMode && (
           <View style={s.helpRow}>
@@ -704,15 +663,17 @@ export default function QuestionScreen({ route, navigation }: Props) {
                 <Text style={[s.helpBtnLabel, s.helpBtnLabelFifty, !canFifty && s.helpBtnLabelUsed]}>50/50</Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity
-              style={[s.helpBtn, s.helpBtnSteal, !canSteal && s.helpBtnUsed]}
-              onPress={handleStealPress}
-              disabled={!canSteal}
-              activeOpacity={0.7}
-            >
-              <Text style={s.helpBtnEmoji}>👊</Text>
-              <Text style={[s.helpBtnLabel, s.helpBtnLabelSteal, !canSteal && s.helpBtnLabelUsed]}>Κλέψε</Text>
-            </TouchableOpacity>
+            {!isNumeric && (!teamGame || iAmLeader) && (
+              <TouchableOpacity
+                style={[s.helpBtn, s.helpBtnSteal, !canSteal && s.helpBtnUsed]}
+                onPress={handleStealPress}
+                disabled={!canSteal}
+                activeOpacity={0.7}
+              >
+                <Text style={s.helpBtnEmoji}>👊</Text>
+                <Text style={[s.helpBtnLabel, s.helpBtnLabelSteal, !canSteal && s.helpBtnLabelUsed]}>Κλέψε</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={[s.helpBtn, s.helpBtnDouble, doubleActive && s.helpBtnDoubleActive, !canDouble && s.helpBtnUsed]}
               onPress={handleDouble}
@@ -866,10 +827,15 @@ export default function QuestionScreen({ route, navigation }: Props) {
           <View style={s.options}>
             {(isSabotaged ? shuffledIndices : [0, 1, 2, 3]).map((originalIdx, displayPos) => {
               const opt = question.options[originalIdx];
-              const revealing = false;
+              // The answer arrives in `turn.reveal` only when the round closes,
+              // and this screen navigates to Result at that moment — so in
+              // practice nothing reveals here. Wired up rather than hard-coded
+              // false so the option styling below stays meaningful.
+              const revealedIndex = turn?.reveal?.correctIndex ?? null;
+              const revealing = revealedIndex !== null;
               const isEliminated = !answered && visibleOptions !== null && !visibleOptions.includes(originalIdx);
-              const isCorrect = revealing && originalIdx === question.correctIndex;
-              const isWrong = revealing && originalIdx === selectedIndex && originalIdx !== question.correctIndex;
+              const isCorrect = revealing && originalIdx === revealedIndex;
+              const isWrong = revealing && originalIdx === selectedIndex && originalIdx !== revealedIndex;
               const isSelected = answered && !revealing && originalIdx === selectedIndex;
               const isDisabled = (answered && !isCorrect && !isWrong && !isSelected) || isEliminated;
               const isDoubleOption = doubleActive && !answered;

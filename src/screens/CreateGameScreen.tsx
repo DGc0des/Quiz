@@ -15,7 +15,7 @@ import { supabase } from '../config/supabase';
 import { generateGameId } from '../utils/gameId';
 import { WIN_SCORE } from '../utils/scoring';
 import { RootStackParamList } from '../types';
-import { v4 as uuidv4 } from 'uuid';
+import { getCurrentUserId } from '../hooks/useAuthSession';
 import { C, F, SHADOW } from '../theme';
 import { Blobs } from '../components/Blobs';
 
@@ -24,7 +24,10 @@ type Props = NativeStackScreenProps<RootStackParamList, 'CreateGame'>;
 export default function CreateGameScreen({ route, navigation }: Props) {
   const { playerName } = route.params;
   const [gameId] = useState(() => generateGameId());
-  const [playerId] = useState(() => uuidv4());
+  // The host's id is the anonymous auth uid — the RLS insert policy requires the
+  // creator to list themselves in `players`, and every later write is authorized
+  // against this same id.
+  const [playerId] = useState(() => getCurrentUserId());
   const [creating, setCreating] = useState(true);
   const [createError, setCreateError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -53,8 +56,15 @@ export default function CreateGameScreen({ route, navigation }: Props) {
           currentTurn: null,
           createdAt: Date.now(),
           winnerId: null,
+          winnerTeamId: null,
+          // Teams are re-drawn by `start_team_game` on every start, so a rematch
+          // carries the *mode* forward but never the previous split.
+          mode: 'solo',
+          teams: null,
           rematchGameId: null,
           usedQuestionIds: [],
+          roundHistory: [],
+          seriesWins: {},
           winScore: WIN_SCORE,
           version: 0,
         },

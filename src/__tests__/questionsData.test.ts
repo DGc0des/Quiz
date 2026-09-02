@@ -1,5 +1,17 @@
-import { questions, getQuestions } from '../data/questions';
-import { Category, ChoiceQuestion, NumericQuestion } from '../types';
+// Data integrity for the question bank.
+//
+// The answers were moved out of the app in Stage 3, so this validates the
+// AUTHORING SOURCE (tools/questions.source.ts) — the file that still has them
+// and from which both the shipped bank and the SQL seed are generated. It also
+// asserts that the shipped bank really carries no answers, which is the whole
+// point of the split (finding H1).
+import { questions as shipped } from '../data/questions';
+import { questions } from '../../tools/questions.source';
+import type { SourceQuestion } from '../../tools/questions.source';
+import { Category } from '../types';
+
+type SourceChoice = Extract<SourceQuestion, { correctIndex: 0 | 1 | 2 | 3 }>;
+type SourceNumeric = Extract<SourceQuestion, { correctValue: number }>;
 
 const VALID_CATEGORIES: Category[] = [
   'Ιστορία',
@@ -11,10 +23,10 @@ const VALID_CATEGORIES: Category[] = [
 ];
 
 const choiceQuestions = questions.filter(
-  (q): q is ChoiceQuestion => q.type !== 'numeric',
+  (q): q is SourceChoice => q.type !== 'numeric',
 );
 const numericQuestions = questions.filter(
-  (q): q is NumericQuestion => q.type === 'numeric',
+  (q): q is SourceNumeric => q.type === 'numeric',
 );
 
 describe('questions.ts data integrity', () => {
@@ -64,7 +76,7 @@ describe('questions.ts data integrity', () => {
     const missing: string[] = [];
     for (const cat of VALID_CATEGORIES) {
       for (const diff of [1, 2, 3] as const) {
-        if (getQuestions(cat, diff).length === 0) {
+        if (questions.filter((q) => q.category === cat && q.difficulty === diff).length === 0) {
           missing.push(`${cat} d${diff}`);
         }
       }
@@ -107,6 +119,19 @@ describe('numeric questions', () => {
     expect(numericQuestions.length).toBeGreaterThan(0);
   });
 
+  test('every category has at least 10 numeric questions per difficulty', () => {
+    const thin: string[] = [];
+    for (const cat of VALID_CATEGORIES) {
+      for (const diff of [1, 2, 3] as const) {
+        const n = numericQuestions.filter(
+          (q) => q.category === cat && q.difficulty === diff,
+        ).length;
+        if (n < 10) thin.push(`${cat} d${diff}: ${n}`);
+      }
+    }
+    expect(thin).toEqual([]);
+  });
+
   test('every numeric question has a finite correctValue and no options', () => {
     const wrong = numericQuestions.filter(
       (q) =>
@@ -122,5 +147,18 @@ describe('numeric questions', () => {
       (q) => q.unit !== undefined && (typeof q.unit !== 'string' || q.unit.trim() === ''),
     );
     expect(wrong.map((q) => q.id)).toEqual([]);
+  });
+});
+
+describe('the shipped bank carries no answer key', () => {
+  test('no shipped question exposes correctIndex or correctValue', () => {
+    const leaked = shipped.filter(
+      (q) => 'correctIndex' in q || 'correctValue' in q,
+    );
+    expect(leaked.map((q) => q.id)).toEqual([]);
+  });
+
+  test('the shipped bank covers exactly the same ids as the source', () => {
+    expect(shipped.map((q) => q.id).sort()).toEqual(questions.map((q) => q.id).sort());
   });
 });

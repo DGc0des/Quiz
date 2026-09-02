@@ -13,12 +13,21 @@ import { useGame } from '../hooks/useGame';
 import { useTimer } from '../hooks/useTimer';
 import { getQuestionById } from '../data/questions';
 import { leaveGame } from '../utils/leaveGame';
-import { updateGame } from '../utils/updateGame';
-import { pickWinner, resolveForScoring, earnedForPlayer, WIN_SCORE } from '../utils/scoring';
+import { runGameWrite, reportWriteError, logWriteError } from '../utils/reportWriteError';
+import { closeReview } from '../utils/gameRpc';
 import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
-import { RootStackParamList, Player } from '../types';
+import { finishedDestination } from '../utils/gameFlow';
+import { RootStackParamList } from '../types';
 import { C, F, SHADOW } from '../theme';
 import { Blobs } from '../components/Blobs';
+import { TeamScoreRow } from '../components/TeamScoreRow';
+import {
+  effectiveLeaderId,
+  isTeamGame,
+  teamOf,
+  teamRosterOrder,
+  TEAM_COLORS,
+} from '../utils/teams';
 import { Avatar } from '../components/Avatar';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Result'>;
@@ -51,12 +60,12 @@ export default function ResultScreen({ route, navigation }: Props) {
     if (!game) return;
     if (game.status === 'picking') navigation.replace('Turn', { gameId, playerId });
     if (game.status === 'finished') {
-      if (!game.winnerId) {
+      const dest = finishedDestination(game, playerId);
+      if (dest === 'Home') {
         navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
         return;
       }
-      const isWinner = game.winnerId === playerId;
-      navigation.replace(isWinner ? 'Winner' : 'Loser', { gameId, playerId });
+      navigation.replace(dest, { gameId, playerId });
     }
   }, [game?.status]);
 
@@ -71,7 +80,9 @@ export default function ResultScreen({ route, navigation }: Props) {
           text: 'Έξοδος',
           style: 'destructive',
           onPress: async () => {
-            await leaveGame(gameId, playerId, game);
+            // Leaving must never trap the player: if the write fails we say so
+            // and go Home anyway — the presence janitor removes them server-side.
+            await runGameWrite('Η έξοδος', () => leaveGame(gameId, playerId, game));
             leavePresence(gameId);
             navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
           },
@@ -80,60 +91,36 @@ export default function ResultScreen({ route, navigation }: Props) {
     );
   };
 
-  const handleNext = async () => {
+  // Banking the round is the server's job: it already computed each player's
+  // points into `turn.resolved` when the round closed, and it owns the winner
+  // rule. `close_review` applies them and opens the next turn.
+  //
+  // Two callers with different failure handling: the host tapping the button
+  // wants to be told why nothing happened; the 90s auto-advance fires on every
+  // client at once, so it logs instead of stacking a dialog on each device.
+  const advanceRound = async ({ silent = false } = {}) => {
     if (!game || !game.currentTurn || advancedRef.current) return;
     advancedRef.current = true;
 
-    const updated = await updateGame(
-      gameId,
-      (g) => {
-        const turn = g.currentTurn;
-        if (!turn || g.status !== 'reviewing') return null;
-        const resolved = resolveForScoring(
-          turn,
-          turn.questionId ? getQuestionById(turn.questionId) : null,
-        );
-
-        const updatedPlayers: Record<string, Player> = {};
-        for (const [id, p] of Object.entries(g.players)) {
-          updatedPlayers[id] = { ...p, score: p.score + earnedForPlayer(turn, resolved, id) };
-        }
-
-        const winner = pickWinner(Object.values(updatedPlayers), g.winScore ?? WIN_SCORE);
-        const nextIndex = (g.currentTurnIndex + 1) % g.turnOrder.length;
-        const nextActiveId = g.turnOrder[nextIndex];
-
-        return {
-          ...g,
-          players: updatedPlayers,
-          winnerId: winner?.id ?? null,
-          status: winner ? 'finished' : 'picking',
-          currentTurnIndex: nextIndex,
-          currentTurn: winner
-            ? null
-            : {
-                turnNumber: (turn.turnNumber ?? 0) + 1,
-                activePlayerId: nextActiveId,
-                selectedPoints: null,
-                selectedCategory: null,
-                questionId: null,
-                answers: {},
-                timerStartedAt: Date.now(),
-                status: 'picking',
-                activeHelps: {},
-              },
-        };
-      },
-      { base: game },
-    );
-
-    if (!updated) {
+    try {
+      const result = await closeReview(gameId);
+      if (!result.ok) {
+        advancedRef.current = false;
+        return;
+      }
+    } catch (e: unknown) {
+      // Release the one-shot guard so a tap can still retry the advance.
       advancedRef.current = false;
+      if (silent) logWriteError('Ο επόμενος γύρος', e);
+      else reportWriteError('Ο επόμενος γύρος', e);
       return;
     }
-    // No explicit navigation: `updateGame` primes the local cache, so the
+    // No explicit navigation: the RPC wrapper primes the local cache, so the
     // status-watching effect above advances to Turn / Winner / Loser on its own.
   };
+
+  /** The host's "Επόμενος Γύρος" tap. */
+  const handleNext = () => advanceRound();
 
   // Reset the one-shot guard whenever a new review phase begins.
   useEffect(() => {
@@ -141,37 +128,55 @@ export default function ResultScreen({ route, navigation }: Props) {
   }, [reviewStartedAt]);
 
   // Auto-advance if nobody taps "Επόμενος Γύρος" in REVIEW_SECONDS. Any client
-  // may fire — `handleNext` is guarded by `updateGame` (version-checked, only
+  // may fire — `advanceRound` is guarded by `close_review` (version-checked, only
   // the first write lands) plus `advancedRef`, so concurrent fires are safe.
   // This also keeps the game moving if the host stalls or disconnects.
   useEffect(() => {
     if (reviewStartedAt === null || game?.status !== 'reviewing') return;
     if (reviewRemaining > 0 || advancedRef.current) return;
-    handleNext();
+    advanceRound({ silent: true });
   }, [reviewRemaining, game?.status, reviewStartedAt]);
 
   if (!game || !game.currentTurn) return null;
 
   const turn = game.currentTurn;
   const question = turn.questionId ? getQuestionById(turn.questionId) : null;
-  const resolved = resolveForScoring(turn, question);
 
+  // Both the answer and the per-player outcome are written by the server when
+  // the round closes (see 0006_authoritative_scoring.sql) — the app no longer
+  // ships the answer key, so there is nothing to recompute here.
+  const resolved = turn.resolved ?? {};
   const isNumericQ = question?.type === 'numeric';
-  const correctValue = question?.type === 'numeric' ? question.correctValue : null;
+  const correctIndex = turn.reveal?.correctIndex ?? null;
+  const correctValue = turn.reveal?.correctValue ?? null;
   const correctText = !question
     ? ''
     : question.type === 'numeric'
-      ? `${formatNum(question.correctValue)}${question.unit ? ' ' + question.unit : ''}`
-      : question.options[question.correctIndex];
+      ? correctValue === null
+        ? '—'
+        : `${formatNum(correctValue)}${question.unit ? ' ' + question.unit : ''}`
+      : correctIndex === null
+        ? '—'
+        : question.options[correctIndex];
+
+  // In team mode the points went to the *side*, not to any player, so no
+  // per-player badge is shown — `turn.teamResolved` is the authoritative
+  // result and `turn.resolved` is not written at all.
+  const teamGame = isTeamGame(game);
+  const teamResolved = turn.teamResolved ?? null;
 
   const earnedMap: Record<string, number> = {};
   for (const id of Object.keys(game.players)) {
-    earnedMap[id] = earnedForPlayer(turn, resolved, id);
+    earnedMap[id] = teamGame ? 0 : (resolved[id]?.earned ?? 0);
   }
 
-  const sortedPlayers = Object.values(game.players).sort(
-    (a, b) => (b.score + earnedMap[b.id]) - (a.score + earnedMap[a.id])
-  );
+  // Ranking by score is meaningless in team mode — nobody's moves — so group
+  // the list by side instead, with your own team first.
+  const sortedPlayers = teamGame
+    ? teamRosterOrder(game, playerId)
+    : Object.values(game.players).sort(
+        (a, b) => (b.score + earnedMap[b.id]) - (a.score + earnedMap[a.id]),
+      );
   const turnNumber = turn.turnNumber ?? 1;
 
   return (
@@ -201,12 +206,49 @@ export default function ResultScreen({ route, navigation }: Props) {
           </View>
         )}
 
-        <Text style={s.sectionEyebrow}>Αποτελέσματα παικτών</Text>
+        {teamGame && (
+          <>
+            <Text style={s.sectionEyebrow}>Αποτελέσματα ομάδων</Text>
+            <TeamScoreRow
+              game={game}
+              myTeamId={teamOf(game, playerId)?.id}
+              pending={teamResolved}
+            />
+            <View style={s.teamOutcomes}>
+              {(['red', 'blue'] as const).map((tid) => {
+                const t = game.teams?.[tid];
+                const r = teamResolved?.[tid];
+                if (!t) return null;
+                return (
+                  <View key={tid} style={s.teamOutcomeRow}>
+                    <Text style={[s.teamOutcomeName, { color: TEAM_COLORS[tid] }]}>
+                      {t.name}
+                    </Text>
+                    <Text style={s.teamOutcomeText}>
+                      {r?.isCorrect ? '✓ Σωστά' : '✗ Λάθος'}
+                      {r && r.earned > 0 ? `  +${r.earned}` : ''}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          </>
+        )}
+
+        <Text style={s.sectionEyebrow}>
+          {teamGame ? 'Τι απάντησε ο καθένας' : 'Αποτελέσματα παικτών'}
+        </Text>
 
         {sortedPlayers.map((player) => {
           const rawAnswer = turn.answers[player.id];
           const resolvedAns = resolved[player.id];
-          const isCorrect = resolvedAns?.isCorrect ?? false;
+          // Team mode writes no per-player `resolved`, so correctness comes from
+          // the answer itself — which `submit_answer` decided at submit time for
+          // a choice question. On a numeric round "closest" is relative and only
+          // the leaders were compared, so no individual verdict exists.
+          const isCorrect = teamGame
+            ? !isNumericQ && (rawAnswer?.isCorrect ?? false)
+            : (resolvedAns?.isCorrect ?? false);
           const isSelf = player.id === playerId;
           const hasDouble = turn.activeHelps?.[player.id]?.double;
           const hasFifty = turn.activeHelps?.[player.id]?.fifty;
@@ -215,19 +257,30 @@ export default function ResultScreen({ route, navigation }: Props) {
           const earned = earnedMap[player.id] ?? 0;
           const noAnswer = rawAnswer === undefined;
 
+          // In team mode the points went to the *side*, so no per-player total
+          // moves and no "+N βαθμ." belongs on a player's line — appending
+          // "+0 βαθμ." to a correct answer reads as a bug, because it looks like
+          // one. The side's points are shown once, on the leader's row, which is
+          // also the row that explains where they came from.
+          const rowTeam = teamGame ? teamOf(game, player.id) : null;
+          const isRowLeader =
+            !!rowTeam && effectiveLeaderId(rowTeam, game.players) === player.id;
+          const teamEarned = rowTeam ? (teamResolved?.[rowTeam.id]?.earned ?? 0) : 0;
+          const pts = teamGame ? '' : ` +${earned} βαθμ.`;
+
           let verdictText: string;
           let verdictStyle: object;
           if (noAnswer) {
             verdictText = '— δεν απάντησε';
             verdictStyle = s.verdictMute;
           } else if (isNumericQ) {
-            const guess = resolvedAns?.answerValue;
+            const guess = teamGame ? rawAnswer?.answerValue : resolvedAns?.answerValue;
             const stealNote = stolenFrom ? `👊 ${stealTargetName} · ` : '';
             if (guess == null) {
               verdictText = '— δεν απάντησε';
               verdictStyle = s.verdictMute;
             } else if (isCorrect) {
-              verdictText = `${stealNote}🎯 ${formatNum(guess)} · Πλησιέστερα!${hasDouble ? ' ⚡×2' : ''} +${earned} βαθμ.`;
+              verdictText = `${stealNote}🎯 ${formatNum(guess)} · Πλησιέστερα!${hasDouble ? ' ⚡×2' : ''}${pts}`;
               verdictStyle = s.verdictCorrect;
             } else {
               const dist = Math.abs(guess - (correctValue ?? 0));
@@ -236,20 +289,20 @@ export default function ResultScreen({ route, navigation }: Props) {
             }
           } else if (stolenFrom) {
             verdictText = isCorrect
-              ? `👊 Έκλεψε από ${stealTargetName} · +${earned} βαθμ.`
+              ? `👊 Έκλεψε από ${stealTargetName} ·${pts || ' Σωστά'}`
               : `👊 Έκλεψε από ${stealTargetName} · Λάθος`;
             verdictStyle = isCorrect ? s.verdictCorrect : s.verdictWrong;
           } else if (hasDouble && hasFifty && isCorrect) {
-            verdictText = `✂️⚡ ×2 Σωστά! +${earned} βαθμ.`;
+            verdictText = `✂️⚡ ×2 Σωστά!${pts}`;
             verdictStyle = s.verdictCorrect;
           } else if (hasDouble && isCorrect) {
-            verdictText = `⚡ ×2 Σωστά! +${earned} βαθμ.`;
+            verdictText = `⚡ ×2 Σωστά!${pts}`;
             verdictStyle = s.verdictCorrect;
           } else if (hasFifty && isCorrect) {
-            verdictText = `✂️ 50/50 Σωστά! +${earned} βαθμ.`;
+            verdictText = `✂️ 50/50 Σωστά!${pts}`;
             verdictStyle = s.verdictCorrect;
           } else if (isCorrect) {
-            verdictText = `✓ Σωστά! +${earned} βαθμ.`;
+            verdictText = `✓ Σωστά!${pts}`;
             verdictStyle = s.verdictCorrect;
           } else {
             verdictText = '✗ Λάθος';
@@ -266,10 +319,21 @@ export default function ResultScreen({ route, navigation }: Props) {
                 <Text style={s.playerName}>
                   {player.name}
                   {isSelf ? ' (εσύ)' : ''}
+                  {isRowLeader && rowTeam ? (
+                    <Text style={[s.leaderTag, { color: TEAM_COLORS[rowTeam.id] }]}>
+                      {'  ★ αρχηγός'}
+                    </Text>
+                  ) : null}
                 </Text>
                 <Text style={[s.verdict, verdictStyle]}>{verdictText}</Text>
               </View>
-              <Text style={s.totalScore}>{player.score + earned}</Text>
+              {teamGame ? (
+                <Text style={s.totalScore}>
+                  {isRowLeader && teamEarned > 0 ? `+${teamEarned}` : ''}
+                </Text>
+              ) : (
+                <Text style={s.totalScore}>{player.score + earned}</Text>
+              )}
             </View>
           );
         })}
@@ -382,6 +446,10 @@ const s = StyleSheet.create({
     color: C.green,
   },
 
+  teamOutcomes: { width: '100%', gap: 4, marginTop: 8 },
+  teamOutcomeRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  teamOutcomeName: { fontFamily: F.sansBold, fontSize: 13 },
+  teamOutcomeText: { fontFamily: F.sansSemiBold, fontSize: 13, color: C.inkSoft },
   sectionEyebrow: {
     fontFamily: F.sansSemiBold,
     fontSize: 12,
@@ -422,6 +490,7 @@ const s = StyleSheet.create({
   verdictWrong: { color: C.primary },
   verdictMute: { color: C.inkMute },
 
+  leaderTag: { fontFamily: F.sansBold, fontSize: 11 },
   totalScore: {
     fontFamily: F.display,
     fontSize: 26,

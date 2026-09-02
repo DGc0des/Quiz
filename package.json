@@ -7,7 +7,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "test": "jest"
+    "test": "jest",
+    "questions:build": "node tools/run-ts.js tools/build-questions.ts"
   },
   "jest": {
     "preset": "ts-jest",
@@ -18,7 +19,7 @@
         {
           "tsconfig": {
             "jsx": "react-native",
-            "strict": false
+            "strict": true
           }
         }
       ]

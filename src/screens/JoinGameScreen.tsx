@@ -13,11 +13,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { updateGame } from '../utils/updateGame';
+import { joinGame, JOIN_ERROR_MESSAGES } from '../utils/joinGame';
+import { describeWriteError } from '../utils/reportWriteError';
 import { parseGameCodeFromScanPayload, GAME_CODE_ALPHABET } from '../utils/gameId';
+import { pickWideAngleLens } from '../utils/cameraLens';
 import { sanitizeName, NAME_MAX_LENGTH } from '../utils/sanitizeName';
 import { RootStackParamList } from '../types';
-import { v4 as uuidv4 } from 'uuid';
+import { getCurrentUserId } from '../hooks/useAuthSession';
 import { C, F, SHADOW } from '../theme';
 import { Blobs } from '../components/Blobs';
 import { Mascot } from '../components/Mascot';
@@ -35,6 +37,8 @@ export default function JoinGameScreen({ route, navigation }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [permission, requestPermission] = useCameraPermissions();
+  // iOS only: pin the 1x wide-angle lens instead of the virtual device's 0.5x default.
+  const [lens, setLens] = useState<string | undefined>(undefined);
   const hiddenInputRef = useRef<TextInput>(null);
 
   const handleJoin = async () => {
@@ -55,40 +59,19 @@ export default function JoinGameScreen({ route, navigation }: Props) {
     setLoading(true);
     setError('');
 
-    const playerId = uuidv4();
     try {
-      const result = await updateGame(trimmed, (g) => {
-        if (g.status !== 'lobby') return null; // exists but already started
-        if (playerId in g.players) return g; // idempotent
-        return {
-          ...g,
-          players: {
-            ...g.players,
-            [playerId]: {
-              id: playerId,
-              name: trimmedName,
-              score: 0,
-              isHost: false,
-              joinedAt: Date.now(),
-              usedHelps: { fifty: false, steal: false, double: false, sabotage: false },
-            },
-          },
-        };
-      });
-
-      if (result === null) {
-        setError('Το παιχνίδι δεν βρέθηκε.');
+      const result = await joinGame(trimmed, trimmedName);
+      if (!result.ok) {
+        setError(JOIN_ERROR_MESSAGES[result.reason]);
         setLoading(false);
         return;
       }
-      if (!(playerId in result.players)) {
-        setError('Το παιχνίδι έχει ήδη ξεκινήσει.');
-        setLoading(false);
-        return;
-      }
-      navigation.replace('Lobby', { gameId: trimmed, playerId });
-    } catch {
-      setError('Σφάλμα σύνδεσης. Δοκιμάστε ξανά.');
+      navigation.replace('Lobby', { gameId: trimmed, playerId: getCurrentUserId() });
+    } catch (e: unknown) {
+      // Not always a connection problem: a missing `join_game` (client ahead of
+      // the applied migrations) reaches here too, and "check your internet" is
+      // the wrong thing to tell someone about it.
+      setError(describeWriteError(e));
       setLoading(false);
     }
   };
@@ -106,6 +89,10 @@ export default function JoinGameScreen({ route, navigation }: Props) {
       <View style={{ flex: 1 }}>
         <CameraView
           style={{ flex: 1 }}
+          selectedLens={lens}
+          onAvailableLensesChanged={({ lenses }) => {
+            if (lens === undefined) setLens(pickWideAngleLens(lenses));
+          }}
           barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
           onBarcodeScanned={({ data }) => {
             const code = parseGameCodeFromScanPayload(data);
