@@ -11,9 +11,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
-import { supabase } from '../config/supabase';
+import { createGame } from '../utils/gameRpc';
 import { generateGameId } from '../utils/gameId';
-import { WIN_SCORE } from '../utils/scoring';
 import { RootStackParamList } from '../types';
 import { getCurrentUserId } from '../hooks/useAuthSession';
 import { C, F, SHADOW } from '../theme';
@@ -36,40 +35,11 @@ export default function CreateGameScreen({ route, navigation }: Props) {
 
   useEffect(() => {
     const create = async () => {
-      const { error } = await supabase.from('games').insert({
-        id: gameId,
-        data: {
-          id: gameId,
-          status: 'lobby',
-          players: {
-            [playerId]: {
-              id: playerId,
-              name: playerName,
-              score: 0,
-              isHost: true,
-              joinedAt: Date.now(),
-              usedHelps: { fifty: false, steal: false, double: false, sabotage: false },
-            },
-          },
-          turnOrder: [],
-          currentTurnIndex: 0,
-          currentTurn: null,
-          createdAt: Date.now(),
-          winnerId: null,
-          winnerTeamId: null,
-          // Teams are re-drawn by `start_team_game` on every start, so a rematch
-          // carries the *mode* forward but never the previous split.
-          mode: 'solo',
-          teams: null,
-          rematchGameId: null,
-          usedQuestionIds: [],
-          roundHistory: [],
-          seriesWins: {},
-          winScore: WIN_SCORE,
-          version: 0,
-        },
-      });
-      if (error) setCreateError(error.message);
+      try {
+        await createGame(gameId, playerName);
+      } catch {
+        setCreateError('Δεν ήταν δυνατή η δημιουργία παιχνιδιού. Δοκίμασε ξανά.');
+      }
       setCreating(false);
     };
     create();

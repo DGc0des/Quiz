@@ -10,14 +10,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { supabase } from '../config/supabase';
-import { generateGameId } from '../utils/gameId';
-import { updateGame } from '../utils/updateGame';
-import { runGameWrite, reportWriteError } from '../utils/reportWriteError';
-import { WIN_SCORE } from '../utils/scoring';
+import { createRematch } from '../utils/gameRpc';
+import { runGameWrite } from '../utils/reportWriteError';
 import { useGame } from '../hooks/useGame';
 import { leavePresence } from '../hooks/useGamePresence';
-import { RootStackParamList, Game } from '../types';
+import { RootStackParamList } from '../types';
 import { C, F, SHADOW } from '../theme';
 import { Blobs } from '../components/Blobs';
 import { Mascot } from '../components/Mascot';
@@ -144,62 +141,7 @@ export default function WinnerScreen({ route, navigation }: Props) {
     if (!game || creatingRematch) return;
     setCreatingRematch(true);
 
-    const newGameId = generateGameId();
-
-    // Reset all players' scores, keep the original host
-    const resetPlayers: Game['players'] = {};
-    for (const [id, p] of Object.entries(game.players)) {
-      resetPlayers[id] = { ...p, score: 0, joinedAt: Date.now(), usedHelps: { fifty: false, steal: false, double: false, sabotage: false } };
-    }
-
-    const newGame: Game = {
-      id: newGameId,
-      status: 'lobby',
-      players: resetPlayers,
-      turnOrder: [],
-      currentTurnIndex: 0,
-      currentTurn: null,
-      createdAt: Date.now(),
-      winnerId: null,
-      winnerTeamId: null,
-      // Teams are re-drawn by `start_team_game` on every start, so a rematch
-      // carries the *mode* forward but never the previous split.
-      mode: game.mode ?? 'solo',
-      teams: null,
-      rematchGameId: null,
-      // Reset per rematch — carrying these over drains the question pool across
-      // a few rematches and eventually starves picking (see PROJECT_STATUS.md §4.3 L7/L8).
-      // A rematch is a fresh game, so repeats from a prior game are fine.
-      usedQuestionIds: [],
-      roundHistory: [],
-      // The one thing a rematch *keeps*: the running series tally, which
-      // close_review bumped for the winner of the game that just ended.
-      seriesWins: game.seriesWins ?? {},
-      winScore: game.winScore ?? WIN_SCORE,
-      version: 0,
-    };
-
-    const { error } = await supabase.from('games').insert({
-      id: newGameId,
-      data: newGame,
-    });
-
-    if (error) {
-      // Silently clearing the flag left the button looking dead — say why.
-      setCreatingRematch(false);
-      reportWriteError('Η ρεβάνς', error);
-      return;
-    }
-
-    // Signal all players to follow by setting rematchGameId on the old game
-    // The rematch row exists; this only tells the others to follow. If it fails
-    // the player who tapped is stuck on this screen, so clear the flag to allow
-    // a retry — the mutator is a no-op once `rematchGameId` is already set.
-    const { ok } = await runGameWrite('Η ρεβάνς', () =>
-      updateGame(gameId, (g) => (g.rematchGameId ? null : { ...g, rematchGameId: newGameId }), {
-        base: game,
-      }),
-    );
+    const { ok } = await runGameWrite('Η ρεβάνς', () => createRematch(gameId));
     if (!ok) setCreatingRematch(false);
   };
 
@@ -210,7 +152,7 @@ export default function WinnerScreen({ route, navigation }: Props) {
 
       <ScrollView
         contentContainerStyle={s.scroll}
-        style={{ zIndex: 2 }}
+        style={{ flex: 1, zIndex: 2 }}
         showsVerticalScrollIndicator={false}
       >
         <Mascot size={108} mood="cheer" />
@@ -294,6 +236,9 @@ export default function WinnerScreen({ route, navigation }: Props) {
           />
         )}
 
+      </ScrollView>
+
+      <View style={s.actions}>
         {isHost ? (
           <TouchableOpacity
             style={[s.primaryBtn, creatingRematch && s.disabled]}
@@ -313,13 +258,22 @@ export default function WinnerScreen({ route, navigation }: Props) {
             <Text style={s.waitText}>Αναμονή νέου παιχνιδιού...</Text>
           </View>
         )}
-      </ScrollView>
+      </View>
     </View>
   );
 }
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
+  actions: {
+    zIndex: 2,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 12,
+    backgroundColor: C.bg,
+    borderTopWidth: 1,
+    borderTopColor: C.line,
+  },
   scroll: { paddingHorizontal: 20, paddingTop: 30, alignItems: 'center', gap: 6 },
 
   eyebrow: {
@@ -407,8 +361,8 @@ const s = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 40,
     alignItems: 'center',
-    marginTop: 18,
-    marginBottom: 32,
+    marginTop: 0,
+    marginBottom: 5,
     width: '100%',
     shadowColor: C.primaryDark,
     shadowOffset: { width: 0, height: 5 },
@@ -426,8 +380,8 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginTop: 18,
-    marginBottom: 32,
+    marginTop: 0,
+    marginBottom: 5,
   },
   waitText: {
     fontFamily: F.sansMedium,

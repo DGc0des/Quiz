@@ -20,8 +20,7 @@ import { useGame } from '../hooks/useGame';
 import { useTimer } from '../hooks/useTimer';
 import { getQuestionById } from '../data/questions';
 import { leaveGame } from '../utils/leaveGame';
-import { updateGame } from '../utils/updateGame';
-import { submitAnswer, ensureRoundAdvanced, useFifty } from '../utils/gameRpc';
+import { submitAnswer, ensureRoundAdvanced, useFifty, usePowerUp } from '../utils/gameRpc';
 import { runGameWrite, reportWriteError, logWriteError } from '../utils/reportWriteError';
 import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
 import { finishedDestination } from '../utils/gameFlow';
@@ -199,36 +198,7 @@ export default function QuestionScreen({ route, navigation }: Props) {
     }
   }, [remaining]);
 
-  // Double needs no answer key, so it still goes through the validated write
-  // path. (50/50 does need one — see handleFifty.)
-  const useDouble = async () => {
-    await updateGame(
-      gameId,
-      (g) => {
-        const ct = g.currentTurn;
-        if (!ct) return null;
-        const prevPlayer = g.players[playerId];
-        const players = {
-          ...g.players,
-          [playerId]: {
-            ...prevPlayer,
-            usedHelps: {
-              fifty: prevPlayer.usedHelps?.fifty ?? false,
-              steal: prevPlayer.usedHelps?.steal ?? false,
-              sabotage: prevPlayer.usedHelps?.sabotage ?? false,
-              double: true,
-            },
-          },
-        };
-        const activeHelps = {
-          ...(ct.activeHelps ?? {}),
-          [playerId]: { ...(ct.activeHelps?.[playerId] ?? {}), double: true },
-        };
-        return { ...g, players, currentTurn: { ...ct, activeHelps } };
-      },
-      { base: game },
-    );
-  };
+  const useDouble = () => usePowerUp(gameId, 'double');
 
   // 50/50 is a server call: choosing two *wrong* options needs the answer key,
   // which the app no longer ships. Unlike the other helps it is therefore not
@@ -294,35 +264,7 @@ export default function QuestionScreen({ route, navigation }: Props) {
     setSabotageMode(false);
     setSabotageActivated(true);
 
-    await updateGame(
-      gameId,
-      (g) => {
-        const ct = g.currentTurn;
-        if (!ct) return null;
-        const prevPlayer = g.players[playerId];
-        const players = {
-          ...g.players,
-          [playerId]: {
-            ...prevPlayer,
-            usedHelps: {
-              fifty: prevPlayer.usedHelps?.fifty ?? false,
-              steal: prevPlayer.usedHelps?.steal ?? false,
-              double: prevPlayer.usedHelps?.double ?? false,
-              sabotage: true,
-            },
-          },
-        };
-        const activeHelps = {
-          ...(ct.activeHelps ?? {}),
-          [playerId]: {
-            ...(ct.activeHelps?.[playerId] ?? {}),
-            sabotage: targetId,
-          },
-        };
-        return { ...g, players, currentTurn: { ...ct, activeHelps } };
-      },
-      { base: game },
-    ).catch((e: unknown) => {
+    await usePowerUp(gameId, 'sabotage', targetId).catch((e: unknown) => {
       setSabotageActivated(false);
       reportWriteError('Το Σαμποτάζ', e);
     });
@@ -1043,7 +985,7 @@ export default function QuestionScreen({ route, navigation }: Props) {
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
-  scoreRowWrap: { paddingHorizontal: 24, paddingTop: 8 },
+  scoreRowWrap: { paddingLeft: 24, paddingRight: 64, paddingTop: 8 },
   leaveBtn: {
     position: 'absolute',
     top: 16,

@@ -60,13 +60,19 @@ Scan the QR code from the terminal with the **Expo Go** app, or press `i` / `a` 
 
 ### Backend setup
 
-The game stores each match as a single row in a `games` table in your Supabase project. The anon key is public by design (it ships in the app) — **Row-Level Security on the `games` table is what protects your data**, so make sure RLS is enabled before sharing the app beyond a trusted group.
+The backend stores authoritative matches in `quiz_private.games` and publishes a redacted, member-only `public.games` projection for Realtime. Clients sign in anonymously and use validated RPCs for all mutations. The public anon key can ship in the app; private state, answer keys, grants, RLS and RPC authorization protect the game.
+
+Apply the original migrations followed by `20260905113817_authoritative_game_security.sql` and `20260905120247_secure_departures.sql` from `supabase/migrations`. These are already deployed to the configured Quiz project. Release the matching updated client: older builds cannot directly create games or rematches or use the former power-up writes.
+
+After changing questions, run `npm run questions:build` and apply the generated answer-key seed plus `supabase/question-catalog.sql` before distributing the app. Run `supabase/tests/security_regression.sql` as database owner for rollback-only integration checks, and `npx tsc --noEmit` plus `npm test -- --runInBand` for app checks.
+
+Explicit exits transfer host ownership safely. A lost network connection leaves the player in the roster; it does not authorize another client to remove them. Server timers continue to expire unanswered questions.
 
 ---
 
 ## Tech stack
 
-- **Expo 54** · React Native · TypeScript
+- **Expo 57** · React Native · TypeScript
 - **Supabase** — Postgres + Realtime for live game state
 - **React Navigation** (native-stack)
 - **Jest** for the test suite (`npm test`)
@@ -74,3 +80,9 @@ The game stores each match as a single row in a `games` table in your Supabase p
 ---
 
 *The game's interface is entirely in Greek.*
+
+At the end of a game, the host can start a rematch using the button fixed at the bottom of the results screen. Round history scrolls separately.
+
+### Expo Go on iPhone
+
+This project uses Expo SDK 57. Open it with SDK 57 Expo Go. Stop any old SDK 54 Metro server, run `npx expo start --go --clear`, and scan the new QR code with your iPhone on the same Wi-Fi network. Local iOS builds require Xcode 26.4 or newer; SDK 57 requires iOS 16.4 or newer.

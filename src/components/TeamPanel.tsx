@@ -22,9 +22,8 @@ type Props = {
  * For a **teammate**: who is deciding, so it is obvious their answer is advice
  * rather than the one that scores.
  *
- * Deliberately shows only *this* team's answers. The other side's are in the
- * same game blob (they always have been, in solo too), but nothing surfaces
- * them — see PROJECT_STATUS.md §4 on that pre-existing leak.
+ * The server supplies only the caller's permitted team advice. Other sides'
+ * submissions and all correctness flags remain private until review.
  */
 export function TeamPanel({ game, team, playerId, isLeader, answers }: Props) {
   const leaderId = effectiveLeaderId(team, game.players);

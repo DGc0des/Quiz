@@ -30,6 +30,7 @@ export default function AppNavigator() {
     <Stack.Navigator
       screenOptions={{
         headerShown: false,
+        // App.tsx owns the light status bar; native screen overrides break Expo Go.
         contentStyle: { backgroundColor: C.bg },
         // Gentle cross-fade: every game-flow nav is a `replace` between screens
         // that share the same background + statically-positioned blobs, so only

@@ -22,6 +22,7 @@ import {
   closeReview,
   setGameMode,
   startTeamGame,
+  createGame, createRematch, usePowerUp, removeGamePlayer,
 } from '../utils/gameRpc';
 
 const GAME = { id: 'ABCDEF', players: {}, version: 3 } as any;
@@ -81,9 +82,7 @@ describe('submitAnswer', () => {
   it('passes a refusal through without priming', async () => {
     rpc.mockResolvedValue({ data: { ok: false, reason: 'wrong_status' }, error: null });
 
-    const result = await submitAnswer('ABCDEF', { index: 0 });
-
-    expect(result).toEqual({ ok: false, reason: 'wrong_status' });
+    await expect(submitAnswer('ABCDEF', { index: 0 })).rejects.toThrow('wrong_status');
     expect(primeGame).not.toHaveBeenCalled();
   });
 
@@ -96,14 +95,9 @@ describe('submitAnswer', () => {
 });
 
 describe('ensureRoundAdvanced', () => {
-  it('is an empty re-submission — the server treats it as a completeness check', async () => {
+  it('advances deadlines without submitting an empty answer', async () => {
     await ensureRoundAdvanced('ABCDEF');
-    expect(rpc).toHaveBeenCalledWith('submit_answer', {
-      p_game_id: 'ABCDEF',
-      p_answer_index: null,
-      p_answer_value: null,
-      p_stolen_from: null,
-    });
+    expect(rpc).toHaveBeenCalledWith('tick_game', { p_game_id: 'ABCDEF' });
   });
 });
 
@@ -120,8 +114,7 @@ describe('useFifty', () => {
 
   it('refuses gracefully when the help is already spent', async () => {
     rpc.mockResolvedValue({ data: { ok: false, reason: 'help_already_used' }, error: null });
-    const result = await useFifty('ABCDEF');
-    expect(result).toEqual({ ok: false, reason: 'help_already_used' });
+    await expect(useFifty('ABCDEF')).rejects.toThrow('help_already_used');
   });
 });
 
@@ -134,8 +127,7 @@ describe('closeReview', () => {
 
   it('reports a refusal so the caller can release its one-shot guard', async () => {
     rpc.mockResolvedValue({ data: { ok: false, reason: 'unresolved_round' }, error: null });
-    const result = await closeReview('ABCDEF');
-    expect(result.ok).toBe(false);
+    await expect(closeReview('ABCDEF')).rejects.toThrow('unresolved_round');
   });
 });
 
@@ -166,18 +158,13 @@ describe('setGameMode', () => {
     // The picker is disabled for this, but players leave while the host decides.
     rpc.mockResolvedValue({ data: { ok: false, reason: 'uneven_teams' }, error: null });
 
-    const result = await setGameMode('ABCDEF', 'teams');
-
-    expect(result).toEqual({ ok: false, reason: 'uneven_teams' });
+    await expect(setGameMode('ABCDEF', 'teams')).rejects.toThrow('uneven_teams');
     expect(primeGame).not.toHaveBeenCalled();
   });
 
   it('passes a non-host refusal through', async () => {
     rpc.mockResolvedValue({ data: { ok: false, reason: 'not_host' }, error: null });
-    expect(await setGameMode('ABCDEF', 'teams')).toEqual({
-      ok: false,
-      reason: 'not_host',
-    });
+    await expect(setGameMode('ABCDEF', 'teams')).rejects.toThrow('not_host');
   });
 
   it('throws on a transport error', async () => {
@@ -209,13 +196,40 @@ describe('startTeamGame', () => {
 
   it('passes a refusal through so the start button can be re-enabled', async () => {
     rpc.mockResolvedValue({ data: { ok: false, reason: 'not_team_mode' }, error: null });
-    const result = await startTeamGame('ABCDEF');
-    expect(result).toEqual({ ok: false, reason: 'not_team_mode' });
+    await expect(startTeamGame('ABCDEF')).rejects.toThrow('not_team_mode');
     expect(primeGame).not.toHaveBeenCalled();
   });
 
   it('reports a second start as a refusal, not a silent re-draw', async () => {
     rpc.mockResolvedValue({ data: { ok: false, reason: 'not_in_lobby' }, error: null });
-    expect((await startTeamGame('ABCDEF')).ok).toBe(false);
+    await expect(startTeamGame('ABCDEF')).rejects.toThrow('not_in_lobby');
+  });
+});
+
+
+describe('dedicated security actions', () => {
+  it('creation sends only an idempotent code and name, never game state', async () => {
+    await createGame('ABCDEF', 'Δημήτρης');
+    expect(rpc).toHaveBeenCalledWith('create_game', { p_game_id: 'ABCDEF', p_name: 'Δημήτρης' });
+    expect(primeGame).toHaveBeenCalledWith('ABCDEF', GAME);
+  });
+  it('rematch derives players, scores and series on the server', async () => {
+    await createRematch('ABCDEF');
+    expect(rpc).toHaveBeenCalledWith('create_rematch', { p_game_id: 'ABCDEF' });
+  });
+  it('leave never sends replacement players, host flags or results', async () => {
+    await removeGamePlayer('ABCDEF', 'departing');
+    expect(rpc).toHaveBeenCalledWith('leave_game', { p_game_id: 'ABCDEF', p_player_id: 'departing' });
+  });
+  it('power-ups send an action instead of editable help flags', async () => {
+    await usePowerUp('ABCDEF', 'double');
+    expect(rpc).toHaveBeenLastCalledWith('use_power_up', { p_game_id: 'ABCDEF', p_help: 'double', p_target: null });
+    await usePowerUp('ABCDEF', 'sabotage', 'opponent');
+    expect(rpc).toHaveBeenLastCalledWith('use_power_up', { p_game_id: 'ABCDEF', p_help: 'sabotage', p_target: 'opponent' });
+  });
+  it('a denied action throws so optimistic controls can roll back', async () => {
+    rpc.mockResolvedValue({ data: { ok: false, reason: 'help_already_used' }, error: null });
+    await expect(usePowerUp('ABCDEF', 'double')).rejects.toThrow('help_already_used');
+    expect(primeGame).not.toHaveBeenCalled();
   });
 });

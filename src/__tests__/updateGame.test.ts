@@ -21,6 +21,7 @@ jest.mock('../config/supabase', () => {
   };
 
   const rpc = async (name: string, args: any) => {
+    if (name === 'get_game') { helpers.reads++; return { data: store[args.p_game_id]?.data ?? null, error: null }; }
     if (name !== 'apply_game_update') throw new Error(`unexpected rpc: ${name}`);
     if (helpers.onBeforeWrite) helpers.onBeforeWrite();
 

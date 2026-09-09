@@ -1,6 +1,6 @@
 import 'react-native-get-random-values';
 import { useCallback } from 'react';
-import { View } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
@@ -46,6 +46,7 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }} onLayout={onLayoutRootView}>
+      <StatusBar style="light" />
       <SafeAreaProvider>
         <ErrorBoundary>
           <AuthGate>

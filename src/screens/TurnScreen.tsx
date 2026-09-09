@@ -190,7 +190,7 @@ export default function TurnScreen({ route, navigation }: Props) {
           usedQuestionIds: [...usedIds, question.id],
           currentTurn: {
             ...ct,
-            selectedPoints: points,
+            selectedPoints: question.difficulty,
             selectedCategory: category,
             questionId: question.id,
             timerStartedAt: Date.now(),
@@ -228,11 +228,13 @@ export default function TurnScreen({ route, navigation }: Props) {
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {teamGame ? (
-          <TeamScoreRow game={game} myTeamId={teamOf(game, playerId)?.id} />
-        ) : (
-          <ScoreRow players={sortedPlayers} selfId={playerId} activePlayerId={activePlayerId} />
-        )}
+        <View style={{ paddingRight: 40 }}>
+          {teamGame ? (
+            <TeamScoreRow game={game} myTeamId={teamOf(game, playerId)?.id} />
+          ) : (
+            <ScoreRow players={sortedPlayers} selfId={playerId} activePlayerId={activePlayerId} />
+          )}
+        </View>
 
         {showPickTimer && (
           <View style={s.timerWrap}>

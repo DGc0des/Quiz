@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, Animated, TouchableOpacity, Alert, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useGame } from '../hooks/useGame';
@@ -137,7 +137,7 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
           <ScoreRow players={players} selfId={playerId} />
         )}
       </View>
-      <View style={s.container}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={s.container}>
         <Mascot size={88} mood="think" />
         <Text style={s.eyebrow}>Η ΤΥΧΑΙΑ ΣΕΙΡΑ ΕΙΝΑΙ...</Text>
         <Text style={s.title}>Σειρά Παιχτών</Text>
@@ -181,14 +181,14 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
             );
           })}
         </View>
-      </View>
+      </ScrollView>
     </View>
   );
 }
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
-  scoreRowWrap: { paddingHorizontal: 24, paddingTop: 8 },
+  scoreRowWrap: { paddingLeft: 24, paddingRight: 64, paddingTop: 8 },
   leaveBtn: {
     position: 'absolute',
     top: 16,
@@ -210,7 +210,8 @@ const s = StyleSheet.create({
     marginTop: -1,
   },
   container: {
-    flex: 1,
+    flexGrow: 1,
+    paddingVertical: 20,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,

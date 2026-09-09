@@ -34,16 +34,9 @@ export class GameUpdateRejected extends Error {
 
 /** Fetch the current game document. Returns null if the row does not exist. */
 export async function fetchGame(gameId: string): Promise<Game | null> {
-  const { data: row, error } = await supabase
-    .from('games')
-    .select('data')
-    .eq('id', gameId)
-    .single();
-  if (error) {
-    if (error.code === 'PGRST116') return null; // no row found
-    throw error;
-  }
-  return (row?.data as Game) ?? null;
+  const { data, error } = await supabase.rpc('get_game', { p_game_id: gameId });
+  if (error) throw error;
+  return (data as Game) ?? null;
 }
 
 /**

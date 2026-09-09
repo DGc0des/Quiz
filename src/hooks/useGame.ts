@@ -12,7 +12,10 @@ const channels = new Map<string, ReturnType<typeof supabase.channel>>();
 const fetchPromises = new Map<string, Promise<Game | null>>();
 
 function notify(gameId: string, game: Game | null) {
+  const previous = gameCache.get(gameId);
+  if (game && previous && game.version < previous.version) return;
   if (game) gameCache.set(gameId, game);
+  else gameCache.delete(gameId);
   subscribers.get(gameId)?.forEach((cb) => cb(game));
 }
 
@@ -35,8 +38,9 @@ function ensureChannel(gameId: string) {
     .on(
       'postgres_changes',
       { event: 'UPDATE', schema: 'public', table: 'games', filter: `id=eq.${gameId}` },
-      (payload) => {
-        notify(gameId, (payload.new as { data: Game }).data);
+      () => {
+        // Realtime carries redacted state only. Fetch the caller-specific view.
+        refreshGame(gameId).catch(() => { /* polling retries after transient failures */ });
       }
     )
     .subscribe();
@@ -54,13 +58,9 @@ function ensureFetch(gameId: string): Promise<Game | null> {
   if (existing) return existing;
 
   const p = (async () => {
-    const { data: row, error } = await supabase
-      .from('games')
-      .select('data')
-      .eq('id', gameId)
-      .single();
-    if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no row
-    const fresh = (row?.data as Game) ?? null;
+    const { data, error } = await supabase.rpc('get_game', { p_game_id: gameId });
+    if (error) throw error;
+    const fresh = (data as Game) ?? null;
     if (fresh) notify(gameId, fresh);
     return fresh;
   })();
@@ -71,6 +71,13 @@ function ensureFetch(gameId: string): Promise<Game | null> {
     if (fetchPromises.get(gameId) === p) fetchPromises.delete(gameId);
   });
   return p;
+}
+
+/** Refetch private own/team advice and advance a server-expired question. */
+async function refreshGame(gameId: string) {
+  const { data, error } = await supabase.rpc('tick_game', { p_game_id: gameId });
+  if (error) throw error;
+  if (data?.ok && data.game) notify(gameId, data.game as Game);
 }
 
 export function useGame(gameId: string) {
@@ -116,7 +123,11 @@ export function useGame(gameId: string) {
         setError(e instanceof Error ? e.message : 'fetch-error');
       });
 
+    const poll = setInterval(() => {
+      refreshGame(gameId).catch(() => { /* retry on next poll */ });
+    }, 3000);
     return () => {
+      clearInterval(poll);
       active = false;
       subscribers.get(gameId)?.delete(cb);
       // Note: keep the channel alive across screen transitions so cached

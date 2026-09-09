@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { Player } from '../types';
 import { C, F } from '../theme';
 
@@ -11,7 +11,7 @@ type Props = {
 export function ScoreRow({ players, selfId, activePlayerId }: Props) {
   const sorted = [...players].sort((a, b) => b.score - a.score);
   return (
-    <View style={s.row}>
+    <ScrollView horizontal style={s.viewport} contentContainerStyle={s.row} showsHorizontalScrollIndicator>
       {sorted.map((p) => {
         const isSelf = p.id === selfId;
         const isActive = activePlayerId != null && p.id === activePlayerId;
@@ -27,25 +27,29 @@ export function ScoreRow({ players, selfId, activePlayerId }: Props) {
           </View>
         );
       })}
-    </View>
+    </ScrollView>
   );
 }
 
 const s = StyleSheet.create({
+  viewport: { flexGrow: 0, flexShrink: 0 },
   row: {
+    flexGrow: 1,
+    paddingBottom: 6,
     flexDirection: 'row',
     gap: 5,
-    justifyContent: 'center',
   },
   box: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 0,
+    flexBasis: 68,
     backgroundColor: C.surface,
     borderWidth: 1.5,
     borderColor: C.line,
     borderRadius: 10,
     paddingVertical: 4,
     paddingHorizontal: 6,
-    minWidth: 44,
+    minWidth: 68,
     alignItems: 'center',
   },
   boxSelf: { borderColor: C.primary },

@@ -2,15 +2,8 @@ import { supabase } from '../config/supabase';
 import { primeGame } from '../hooks/useGame';
 import { Game, GameMode } from '../types';
 
-/**
- * Wrappers for the three game RPCs that need the answer key, and therefore
- * cannot run on the client (see `0006_authoritative_scoring.sql`).
- *
- * Everything else still goes through `updateGame`. These follow the same shape
- * as `joinGame`: call, prime the shared cache on success so the status-watching
- * effects fire without waiting for the realtime echo, and let the caller decide
- * what to do about a refusal.
- */
+/** Dedicated server-authoritative actions. Success primes the caller-specific
+ * cache; all refusals throw so the caller can roll back optimistic UI state. */
 
 /** Refusals these RPCs can return. Mirrors the `reason` values in 0006 + 0007. */
 export type GameRpcReason =
@@ -40,6 +33,7 @@ async function call<T>(fn: string, args: Record<string, unknown>): Promise<RpcOk
   if (error) throw error;
 
   const result = data as RpcOk<T & { game?: Game }> | RpcFail;
+  if (!result.ok) throw new Error(`Η ενέργεια απορρίφθηκε: ${(result as RpcFail).reason}`);
   const success = result as { ok: boolean; game?: Game };
   if (success.ok && success.game) {
     primeGame(success.game.id, success.game);
@@ -67,17 +61,9 @@ export function submitAnswer(
   });
 }
 
-/**
- * Nudge the server to close the round if every remaining player has answered.
- *
- * Normally the last answer triggers that flip inside `submitAnswer`. This covers
- * the case where the round becomes complete without a new answer — a player
- * leaves mid-question and the ones still there have all answered. The server
- * ignores the payload for a caller who has already answered, so this is exactly
- * a repeat submission.
- */
+/** Check the server deadline without accidentally submitting an empty answer. */
 export function ensureRoundAdvanced(gameId: string) {
-  return submitAnswer(gameId, {});
+  return call<{ game: Game }>('tick_game', { p_game_id: gameId });
 }
 
 /**
@@ -123,4 +109,18 @@ export function setGameMode(gameId: string, mode: GameMode) {
  */
 export function startTeamGame(gameId: string) {
   return call<{ game: Game }>('start_team_game', { p_game_id: gameId });
+}
+
+/** Only intent parameters leave the device; server supplies all initial state. */
+export function createGame(gameId: string, name: string) {
+  return call<{ game: Game }>('create_game', { p_game_id: gameId, p_name: name });
+}
+export function createRematch(gameId: string) {
+  return call<{ game: Game }>('create_rematch', { p_game_id: gameId });
+}
+export function usePowerUp(gameId: string, help: 'double' | 'sabotage', target?: string) {
+  return call<{ game: Game }>('use_power_up', { p_game_id: gameId, p_help: help, p_target: target ?? null });
+}
+export function removeGamePlayer(gameId: string, playerId: string) {
+  return call<{ game: Game }>('leave_game', { p_game_id: gameId, p_player_id: playerId });
 }

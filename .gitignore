@@ -54,3 +54,6 @@ texnes_new_questions.md
 /android
 
 /supabase/migrations
+
+# Supabase CLI local cache
+/supabase/.temp/
