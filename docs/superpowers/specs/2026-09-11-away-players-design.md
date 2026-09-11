@@ -1,6 +1,6 @@
 # Away players — keep the game moving when someone drops out
 
-**Status:** plan only — nothing implemented · **Date:** 2026-09-11 · **Type:** architectural (SQL + client)
+**Status:** implemented 2026-09-11 (Phases 1–3; device testing pending, see §15) · **Date:** 2026-09-11 · **Type:** architectural (SQL + client)
 
 This document lists what has to change, where, and why. No code, SQL or other docs were
 changed to write it. Line references are to the files as they are today, including the
@@ -156,7 +156,7 @@ write. Two measures keep that cheap, both in S1/S3:
   clear old row versions without touching the index.
 
 For scale: each existing game action rewrites the whole game JSON twice (the private table,
-plus the Realtime copy via the `publish_game` trigger), typically a few KB each time. A
+plus the Realtime copy via the `publish_game` trigger), about 0.9 KB stored each time (measured 2026-09-11: 33 games, 909-byte average blob). A
 presence write is about 100 bytes.
 
 **Realtime traffic — same or lower.** The presence table isn't broadcast (confirm in rollout
@@ -344,18 +344,33 @@ contains, or reconsider tracking migrations.
 
 ## 13. Not verified
 
-- The speed and size figures in §5.4. They are estimates from the code, not measurements.
-- That the live database functions match the local migration files (rollout step 2).
-- The Realtime publication's table list (rollout step 3).
-- That the committed build calls `tick_game` on every realtime event. The working tree does; the committed build is only confirmed to poll every 3s.
+- The speed figures in §5.4 are estimates from the code, not measurements. The size baseline was measured on 2026-09-11 (31 MB, 33 games, 909-byte average blob).
+- ~~That the live database functions match the local migration files~~ — verified 2026-09-11 (MD5 of all 14 functions touched).
+- ~~The Realtime publication's table list~~ — verified 2026-09-11: `supabase_realtime` contains only `public.games`.
+- ~~That the committed build calls `tick_game` on every realtime event~~ — resolved: the resume/reconnect work, committed 2026-09-11, refreshes on every realtime event.
 - How quickly iOS stops JS timers when the app is backgrounded. That sets how fast a backgrounded player turns away.
-- None of the SQL described here has been written or run.
+- ~~None of the SQL described here has been written or run~~ — applied 2026-09-11; `away_players.sql` 11/11, `security_regression.sql` 34/34.
+- Real multi-device play (the §9 device list) — still pending.
 
 ## 14. Implementation order
 
-- [ ] **Phase 0** — commit the reconnect work; verify live definitions; check the publication
-- [ ] **Phase 1** — S1–S11, SQL tests 1–8 and 12–13
-- [ ] **Phase 2** — client presence, badges, acting host, pickers, remove `useGamePresence`; Jest
-- [ ] **Phase 3** — S12–S15, team stand-in UI, SQL tests 9–11
+- [x] **Phase 0** — commit the reconnect work; verify live definitions; check the publication
+- [x] **Phase 1** — S1–S11, SQL tests 1–8 and 12–13
+- [x] **Phase 2** — client presence, badges, acting host, pickers, remove `useGamePresence`; Jest
+- [x] **Phase 3** — S12–S15, team stand-in UI, SQL tests 9–11
 - [ ] **Phase 4** *(optional)* — acting host in the lobby and for rematch
-- [ ] Device tests; update `CLAUDE.md`, `PROJECT_STATUS.md`, `README.md`
+- [ ] Device tests *(user)*
+- [x] Update `CLAUDE.md`, `PROJECT_STATUS.md`, `README.md`
+
+## 15. Implementation notes (2026-09-11)
+
+Implemented on branch `feature/away-players` per `docs/superpowers/plans/2026-09-11-away-players.md`.
+Migrations applied: `20260911135819_away_players_core` and `20260911140910_away_players_team_standin`.
+
+Deviations from this spec:
+- `round_players` (S5) shipped in Phase 3, its only user.
+- `canActAsHost` is `isHost || actingHostId === playerId`, the same rule as the `close_review` gate, rather than "acting host only, falling back to host".
+- ResultScreen shows an empty answer (away or timed out) as "— δεν απάντησε".
+- SQL test T11 checks that the copied `submit_answer` and the presence-aware `resolve` agree (invariant 2), instead of sweep vs tick — both of those call `resolve(g, true)`.
+- The rematch-lobby grace period is covered by the same `createdAt` floor as the fresh-lobby test (T2), not a separate test.
+- The first-turn reveal advance moved into an effect keyed on `canActAsHost`, replacing the animation callback that captured `isHost` (the §7 pitfall).

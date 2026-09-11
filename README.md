@@ -62,11 +62,11 @@ Scan the QR code from the terminal with the **Expo Go** app, or press `i` / `a` 
 
 The backend stores authoritative matches in `quiz_private.games` and publishes a redacted, member-only `public.games` projection for Realtime. Clients sign in anonymously and use validated RPCs for all mutations. The public anon key can ship in the app; private state, answer keys, grants, RLS and RPC authorization protect the game.
 
-Apply the original migrations followed by `20260905113817_authoritative_game_security.sql` and `20260905120247_secure_departures.sql` from `supabase/migrations`. These are already deployed to the configured Quiz project. Release the matching updated client: older builds cannot directly create games or rematches or use the former power-up writes.
+Apply the original migrations followed by `20260905113817_authoritative_game_security.sql` , `20260905120247_secure_departures.sql`, `20260911135819_away_players_core.sql` and `20260911140910_away_players_team_standin.sql` from `supabase/migrations`. These are already deployed to the configured Quiz project. Release the matching updated client: older builds cannot directly create games or rematches or use the former power-up writes.
 
-After changing questions, run `npm run questions:build` and apply the generated answer-key seed plus `supabase/question-catalog.sql` before distributing the app. Run `supabase/tests/security_regression.sql` as database owner for rollback-only integration checks, and `npx tsc --noEmit` plus `npm test -- --runInBand` for app checks.
+After changing questions, run `npm run questions:build` and apply the generated answer-key seed plus `supabase/question-catalog.sql` before distributing the app. Run `supabase/tests/security_regression.sql` and `supabase/tests/away_players.sql` as database owner for rollback-only integration checks, and `npx tsc --noEmit` plus `npm test -- --runInBand` for app checks.
 
-Explicit exits transfer host ownership safely. A lost network connection leaves the player in the roster; it does not authorize another client to remove them. Server timers continue to expire unanswered questions.
+Explicit exits transfer host ownership safely. A lost network connection leaves the player in the roster; it does not authorize another client to remove them, but after 20 seconds of silence they are treated as away and skipped. Server timers continue to expire unanswered questions.
 
 ---
 
@@ -92,3 +92,5 @@ This project uses Expo SDK 57. Open it with SDK 57 Expo Go. Stop any old SDK 54 
 The home screen remembers your name and offers **Συνέχεια παιχνιδιού** for the last game opened on this device. Resume checks current membership and routes to the current round (or follows a rematch). Temporary network errors keep the saved game available; a successful explicit exit clears it.
 
 Game screens show a reconnect banner when synchronization fails, retry automatically, and refresh when the app returns to the foreground. Server timers keep running during disconnections. Submitted answers and active power-ups are restored from server state; received 50/50 options are remembered on the same device.
+
+Players who drop out are shown as away (💤) and skipped until they come back: their rounds, picks and in-game host duties move on to the players still here. In team mode, a teammate decides for a leader who dropped before answering.
