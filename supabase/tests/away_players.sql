@@ -130,7 +130,68 @@ begin
      or (n#>>array['currentTurn','resolved',o[3],'earned'])::int is distinct from 0 then raise exception 'T5 away player who answered was not scored: %',n->'currentTurn'; end if; checks:=checks+1;
   set local role authenticated;
 
-  -- TEAM TESTS (Task 4) GO HERE
+  -- Team fixture: 3v3, so a stand-in has a teammate's advice to read.
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',h,'role','authenticated')::text,true);
+  perform public.create_game(teamcode,'Away Host');
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',a,'role','authenticated')::text,true); perform public.join_game(teamcode,'Away A');
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',b,'role','authenticated')::text,true); perform public.join_game(teamcode,'Away B');
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',c,'role','authenticated')::text,true); perform public.join_game(teamcode,'Away C');
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',d,'role','authenticated')::text,true); perform public.join_game(teamcode,'Away D');
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',e,'role','authenticated')::text,true); perform public.join_game(teamcode,'Away E');
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',h,'role','authenticated')::text,true);
+  perform public.set_game_mode(teamcode,'teams');
+  r:=public.start_team_game(teamcode); g:=r->'game';
+  r:=public.apply_game_update(teamcode,g || jsonb_build_object('status','picking','currentTurn','{}'::jsonb,'version',(g->>'version')::int+1)); g:=r->'game';
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',g#>>'{currentTurn,activePlayerId}','role','authenticated')::text,true);
+  r:=public.apply_game_update(teamcode,g || jsonb_build_object('status','question','version',(g->>'version')::int+1,'usedQuestionIds',jsonb_build_array(q.id),
+   'currentTurn',(g->'currentTurn') || jsonb_build_object('questionId',q.id,'selectedCategory',q.category,'selectedPoints',3,'timerStartedAt',0,'status','question'))); g:=r->'game';
+  if g->>'status' is distinct from 'question' then raise exception 'fixture: team pick failed: %',r; end if;
+
+  -- Age: join order follows memberIds; the stored red leader rm[1] is away, everyone else present.
+  set local role postgres;
+  select data into g from quiz_private.games where id=teamcode;
+  rm:=array(select x from jsonb_array_elements_text(g#>'{teams,red,memberIds}') with ordinality t(x,ord) order by ord);
+  bm:=array(select x from jsonb_array_elements_text(g#>'{teams,blue,memberIds}') with ordinality t(x,ord) order by ord);
+  if g#>>'{teams,red,leaderId}' is distinct from rm[1] or g#>>'{teams,blue,leaderId}' is distinct from bm[1] then raise exception 'fixture: leader is not the first member'; end if;
+  g:=jsonb_set(g,'{createdAt}','0');
+  g:=jsonb_set(jsonb_set(jsonb_set(g,array['players',rm[1],'joinedAt'],'1'),array['players',rm[2],'joinedAt'],'2'),array['players',rm[3],'joinedAt'],'3');
+  g:=jsonb_set(jsonb_set(jsonb_set(g,array['players',bm[1],'joinedAt'],'4'),array['players',bm[2],'joinedAt'],'5'),array['players',bm[3],'joinedAt'],'6');
+  update quiz_private.games set data=g where id=teamcode;
+  insert into quiz_private.player_presence(game_id,player_id,last_seen_ms)
+   select teamcode,x,(extract(epoch from clock_timestamp())*1000)::bigint from unnest(array[rm[2],rm[3],bm[1],bm[2],bm[3]]) x;
+  set local role authenticated;
+
+  -- T9: the away leader's earliest teammate stands in, reads the side's advice, and decides.
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',rm[3],'role','authenticated')::text,true);
+  perform public.submit_answer(teamcode,(q.correct_index+1)%4);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',rm[2],'role','authenticated')::text,true);
+  r:=public.tick_game(teamcode);
+  if r#>>'{presence,roundLeaders,red}' is distinct from rm[2] or r#>>'{presence,roundLeaders,blue}' is distinct from bm[1] then raise exception 'T9 roundLeaders payload: %',r->'presence'; end if;
+  if r#>array['game','currentTurn','answers',rm[3],'answerIndex'] is null then raise exception 'T9 stand-in cannot read team advice'; end if;
+  perform public.submit_answer(teamcode,q.correct_index);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',bm[1],'role','authenticated')::text,true);
+  r:=public.submit_answer(teamcode,(q.correct_index+1)%4); g:=r->'game';
+  if g->>'status' is distinct from 'question' then raise exception 'fixture: submit_answer closed without the stored leader'; end if;
+  r:=public.tick_game(teamcode); g:=r->'game';
+  if g->>'status' is distinct from 'reviewing' or g#>>'{currentTurn,teamResolved,red,deciderId}' is distinct from rm[2]
+     or (g#>>'{currentTurn,teamResolved,red,earned}')::int is distinct from 3 or (g#>>'{currentTurn,teamResolved,blue,earned}')::int is distinct from 0
+     or g#>>'{currentTurn,teamResolved,blue,deciderId}' is distinct from bm[1] then raise exception 'T9 stand-in did not decide: %',g#>'{currentTurn,teamResolved}'; end if; checks:=checks+1;
+
+  -- T10: a leader who answered and then went away still decides.
+  set local role postgres;
+  select data into g from quiz_private.games where id=teamcode;
+  g:=g || jsonb_build_object('status','question','currentTurn',((g->'currentTurn') - array['reveal','resolved','teamResolved']) || jsonb_build_object('status','question','answers',jsonb_build_object(
+   rm[1],jsonb_build_object('playerId',rm[1],'answerIndex',(q.correct_index+1)%4,'answerValue',null,'isCorrect',false,'answeredAt',1),
+   rm[2],jsonb_build_object('playerId',rm[2],'answerIndex',q.correct_index,'answerValue',null,'isCorrect',true,'answeredAt',1),
+   bm[1],jsonb_build_object('playerId',bm[1],'answerIndex',q.correct_index,'answerValue',null,'isCorrect',true,'answeredAt',1))));
+  n:=quiz_private.resolve(g);
+  if n->>'status' is distinct from 'reviewing' or n#>>'{currentTurn,teamResolved,red,deciderId}' is distinct from rm[1]
+     or (n#>>'{currentTurn,teamResolved,red,earned}')::int is distinct from 0 or (n#>>'{currentTurn,teamResolved,blue,earned}')::int is distinct from 3 then raise exception 'T10 a leader who answered lost the decision: %',n#>'{currentTurn,teamResolved}'; end if; checks:=checks+1;
+
+  -- T11: the copied submit_answer scores with the full roster; the presence-aware resolve must agree (spec invariant 2).
+  if n#>'{currentTurn,teamResolved}' is distinct from public.resolve_team_round(n->'currentTurn',g->'teams',g->'players',q.correct_index,null::numeric) then raise exception 'T11 the two completeness paths disagree'; end if; checks:=checks+1;
+  set local role authenticated;
+
   raise exception using errcode='ZA003',message='rollback away-player fixtures';
  exception when sqlstate 'ZA003' then null;
  end;
