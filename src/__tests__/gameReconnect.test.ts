@@ -32,3 +32,17 @@ it('deduplicates concurrent refreshes and rejects older snapshots', async () => 
   expect(rpc).toHaveBeenCalledTimes(2);
   expect(useGame('race').game?.version).toBe(5);
 });
+it('exposes the server presence from tick_game and tolerates an older server', async () => {
+  rpc.mockResolvedValueOnce({ data: game('presence', 1), error: null });
+  rpc.mockResolvedValueOnce({
+    data: { ok: true, game: game('presence', 1), presence: { awayIds: ['p2'], actingHostId: 'p1', roundLeaders: null } },
+    error: null,
+  });
+  await refreshGame('presence');
+  expect(useGame('presence').presence).toEqual({ awayIds: ['p2'], actingHostId: 'p1', roundLeaders: null });
+
+  rpc.mockResolvedValueOnce({ data: game('presence', 2), error: null });
+  rpc.mockResolvedValueOnce({ data: { ok: true, game: game('presence', 2) }, error: null });
+  await refreshGame('presence');
+  expect(useGame('presence').presence).toEqual({ awayIds: [], actingHostId: null, roundLeaders: null });
+});

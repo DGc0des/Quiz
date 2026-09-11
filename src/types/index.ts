@@ -77,6 +77,20 @@ export interface Team {
   score: number;
 }
 
+/**
+ * Who is away, derived by the server from each player's own heartbeat and returned
+ * by every `tick_game`. Deliberately not on `Game`: a field there would bump
+ * `version` on every heartbeat and make `apply_game_update` reject stale copies.
+ */
+export interface GamePresence {
+  /** Players silent for longer than the server's threshold (20s). */
+  awayIds: string[];
+  /** The host, or while the host is away the earliest-joined player still here. */
+  actingHostId: string | null;
+  /** Team mode: whose answer decides this round per side. Null in solo. */
+  roundLeaders: Partial<Record<TeamId, string>> | null;
+}
+
 export interface Player {
   id: string;
   name: string;

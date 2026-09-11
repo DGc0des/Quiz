@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 import { supabase } from '../config/supabase';
-import { Game } from '../types';
+import { Game, GamePresence } from '../types';
+import { parsePresence } from '../utils/presence';
 
 type Connection = 'connecting' | 'connected' | 'reconnecting';
-type Snapshot = { game: Game | null; loading: boolean; error: string | null; connection: Connection };
+type Snapshot = { game: Game | null; loading: boolean; error: string | null; connection: Connection; presence: GamePresence | null };
 const snapshots = new Map<string, Snapshot>();
 const listeners = new Map<string, Set<() => void>>();
 const channels = new Map<string, ReturnType<typeof supabase.channel>>();
 const requests = new Map<string, Promise<void>>();
 const monitors = new Map<string, () => void>();
 const cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const empty: Snapshot = { game: null, loading: true, error: null, connection: 'connecting' };
+const empty: Snapshot = { game: null, loading: true, error: null, connection: 'connecting', presence: null };
 function snapshot(id: string) { return snapshots.get(id) ?? empty; }
 function publish(id: string, patch: Partial<Snapshot>) {
   snapshots.set(id, { ...snapshot(id), ...patch });
@@ -43,7 +44,8 @@ export function refreshGame(id: string): Promise<void> {
       if (tick.error) throw tick.error;
       if (!tick.data?.ok || !tick.data.game) throw new Error('refresh-failed');
       primeGame(id, tick.data.game as Game);
-      publish(id, { connection: 'connected', error: null });
+      // Away status is derived from heartbeats, so only a tick can refresh it.
+      publish(id, { connection: 'connected', error: null, presence: parsePresence(tick.data.presence) });
     } catch {
       publish(id, { loading: false, error: 'connection-error', connection: 'reconnecting' });
     } finally { clearTimeout(timeout); }
