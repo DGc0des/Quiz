@@ -127,6 +127,8 @@ export interface ResolvedAnswer {
    * rounds and for a player who never answered.
    */
   answerValue?: number | null;
+  /** Team mode only: whose answer decided this side's round — the leader, or a stand-in while the leader was away. */
+  deciderId?: string | null;
 }
 
 /**

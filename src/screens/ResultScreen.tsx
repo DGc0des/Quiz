@@ -271,8 +271,11 @@ function ResultRound({ route, navigation }: Props) {
           // one. The side's points are shown once, on the leader's row, which is
           // also the row that explains where they came from.
           const rowTeam = teamGame ? teamOf(game, player.id) : null;
-          const isRowLeader =
-            !!rowTeam && effectiveLeaderId(rowTeam, game.players) === player.id;
+          const rowLeaderId = rowTeam ? effectiveLeaderId(rowTeam, game.players) : null;
+          // The server records who actually decided (a stand-in while the leader was away).
+          const rowDeciderId = rowTeam ? (teamResolved?.[rowTeam.id]?.deciderId ?? rowLeaderId) : null;
+          const isRowLeader = !!rowTeam && rowDeciderId === player.id;
+          const isStandIn = isRowLeader && rowLeaderId !== player.id;
           const teamEarned = rowTeam ? (teamResolved?.[rowTeam.id]?.earned ?? 0) : 0;
           const pts = teamGame ? '' : ` +${earned} βαθμ.`;
 
@@ -330,7 +333,7 @@ function ResultRound({ route, navigation }: Props) {
                   {isAway(presence, player.id) ? '  💤' : ''}
                   {isRowLeader && rowTeam ? (
                     <Text style={[s.leaderTag, { color: TEAM_COLORS[rowTeam.id] }]}>
-                      {'  ★ αρχηγός'}
+                      {isStandIn ? '  ★ αποφάσισε' : '  ★ αρχηγός'}
                     </Text>
                   ) : null}
                 </Text>

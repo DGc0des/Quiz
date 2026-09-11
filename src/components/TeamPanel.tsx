@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { Game, PlayerAnswer, Team } from '../types';
-import { effectiveLeaderId, teammatesOf, TEAM_COLORS } from '../utils/teams';
+import { teammatesOf, TEAM_COLORS } from '../utils/teams';
 import { C, F } from '../theme';
 import { Avatar } from './Avatar';
 
@@ -10,7 +10,8 @@ type Props = {
   game: Game;
   team: Team;
   playerId: string;
-  isLeader: boolean;
+  /** Whose answer decides this round — `decidingLeaderId()`, so a stand-in for an away leader. */
+  leaderId: string | null;
   answers: Record<string, PlayerAnswer>;
 };
 
@@ -25,8 +26,8 @@ type Props = {
  * The server supplies only the caller's permitted team advice. Other sides'
  * submissions and all correctness flags remain private until review.
  */
-export function TeamPanel({ game, team, playerId, isLeader, answers }: Props) {
-  const leaderId = effectiveLeaderId(team, game.players);
+export function TeamPanel({ game, team, playerId, leaderId, answers }: Props) {
+  const isLeader = leaderId === playerId;
   const leader = leaderId ? game.players[leaderId] : null;
   const accent = TEAM_COLORS[team.id];
 

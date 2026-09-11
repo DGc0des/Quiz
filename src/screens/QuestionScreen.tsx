@@ -23,7 +23,7 @@ import { getQuestionById } from '../data/questions';
 import { leaveGame } from '../utils/leaveGame';
 import { submitAnswer, ensureRoundAdvanced, useFifty, usePowerUp } from '../utils/gameRpc';
 import { runGameWrite, reportWriteError, logWriteError } from '../utils/reportWriteError';
-import { isAway } from '../utils/presence';
+import { decidingLeaderId, isAway } from '../utils/presence';
 import { finishedDestination } from '../utils/gameFlow';
 import { RootStackParamList } from '../types';
 import { C, F, SHADOW, CATEGORY_META } from '../theme';
@@ -95,6 +95,9 @@ function QuestionRound({ route, navigation }: Props) {
   const teamGame = isTeamGame(game);
   const myTeam = teamOf(game, playerId);
   const iAmLeader = isTeamLeader(game, playerId);
+  // Who decides this round (a stand-in while the leader is away). Steal stays with the
+  // stored leader — submit_answer's leader_only check does not know about stand-ins.
+  const roundLeaderId = game && myTeam ? decidingLeaderId(game, myTeam, presence) : null;
   const canFifty =
     !(player?.usedHelps?.fifty ?? false) && visibleOptions === null && !fiftyPending;
   // Steal is choice-only: on a numeric round it would hand over the target's
@@ -616,7 +619,7 @@ function QuestionRound({ route, navigation }: Props) {
             game={game}
             team={myTeam}
             playerId={playerId}
-            isLeader={iAmLeader}
+            leaderId={roundLeaderId}
             answers={turn?.answers ?? {}}
           />
         )}

@@ -1,5 +1,5 @@
-import { canActAsHost, EMPTY_PRESENCE, isAway, parsePresence } from '../utils/presence';
-import { Game, Player } from '../types';
+import { canActAsHost, decidingLeaderId, EMPTY_PRESENCE, isAway, parsePresence } from '../utils/presence';
+import { Game, Player, Team } from '../types';
 
 const player = (id: string, isHost = false): Player => ({ id, name: id, score: 0, isHost, joinedAt: 0 });
 const game = (...players: Player[]) =>
@@ -51,5 +51,22 @@ describe('canActAsHost', () => {
 
   it('refuses a player who is not in the game', () => {
     expect(canActAsHost(g, { ...EMPTY_PRESENCE, actingHostId: 'ghost' }, 'ghost')).toBe(false);
+  });
+});
+
+describe('decidingLeaderId', () => {
+  const team: Team = { id: 'red', name: 'Κόκκινοι', leaderId: 'lead', memberIds: ['lead', 'mate'], score: 0 };
+  const g = game({ ...player('lead'), joinedAt: 1 }, { ...player('mate'), joinedAt: 2 });
+
+  it('is the effective leader before the first tick', () => {
+    expect(decidingLeaderId(g, team, null)).toBe('lead');
+  });
+
+  it('follows the stand-in the server named', () => {
+    expect(decidingLeaderId(g, team, { ...EMPTY_PRESENCE, roundLeaders: { red: 'mate' } })).toBe('mate');
+  });
+
+  it('falls back when the server named nobody for this side', () => {
+    expect(decidingLeaderId(g, team, { ...EMPTY_PRESENCE, roundLeaders: { blue: 'x' } })).toBe('lead');
   });
 });

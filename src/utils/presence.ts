@@ -1,4 +1,5 @@
-import { Game, GamePresence } from '../types';
+import { Game, GamePresence, Team } from '../types';
+import { effectiveLeaderId } from './teams';
 
 /** What an older server (no `presence` block) or a not-yet-ticked screen reads as. */
 export const EMPTY_PRESENCE: GamePresence = { awayIds: [], actingHostId: null, roundLeaders: null };
@@ -41,4 +42,17 @@ export function canActAsHost(
   const player = game?.players[playerId];
   if (!player) return false;
   return player.isHost || presence?.actingHostId === playerId;
+}
+
+/**
+ * Whose answer decides this round for a side. The server names a stand-in when the
+ * leader is away and has not answered; before the first tick, or on an older server,
+ * it is the usual effective leader.
+ */
+export function decidingLeaderId(
+  game: Game,
+  team: Team,
+  presence: GamePresence | null | undefined,
+): string | null {
+  return presence?.roundLeaders?.[team.id] ?? effectiveLeaderId(team, game.players);
 }
