@@ -23,7 +23,7 @@ import { leaveGame } from '../utils/leaveGame';
 import { updateGame } from '../utils/updateGame';
 import { runGameWrite } from '../utils/reportWriteError';
 import { WIN_SCORE, WIN_SCORE_OPTIONS } from '../utils/scoring';
-import { finishedDestination } from '../utils/gameFlow';
+import { gameDestination } from '../utils/gameFlow';
 import { RootStackParamList, Player } from '../types';
 import { C, F, SHADOW } from '../theme';
 import { Blobs } from '../components/Blobs';
@@ -49,7 +49,7 @@ export default function LobbyScreen({ route, navigation }: Props) {
 
   useGamePresence(gameId, playerId, game ?? null);
 
-  // Share / copy the invite — same pattern as CreateGameScreen.
+  // Share / copy the invite — available to everyone in the lobby.
   const handleCopy = async () => {
     await Clipboard.setStringAsync(deepLink);
     setCopied(true);
@@ -64,17 +64,9 @@ export default function LobbyScreen({ route, navigation }: Props) {
 
   useEffect(() => {
     if (!game) return;
-    if (game.status === 'turn_reveal') {
-      navigation.replace('TurnReveal', { gameId, playerId });
-    }
-    if (game.status === 'finished') {
-      const dest = finishedDestination(game, playerId);
-      if (dest === 'Home') {
-        navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
-      } else {
-        navigation.replace(dest, { gameId, playerId });
-      }
-    }
+    const dest = gameDestination(game, playerId);
+    if (dest === 'Home') navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+    else if (dest !== 'Lobby') navigation.replace(dest, { gameId, playerId });
   }, [game?.status]);
 
   const handleLeave = () => {
@@ -212,7 +204,7 @@ export default function LobbyScreen({ route, navigation }: Props) {
           contentContainerStyle={s.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={s.title}>Έτοιμοι;</Text>
+          <Text style={s.title}>{isHost ? 'Πρόσκαλεσε φίλους' : 'Έτοιμοι;'}</Text>
 
           {/* Code + QR card — QR encodes the quizapp://join/ deep link so a generic phone camera opens the app (a raw code just triggers a web search); the in-app scanner accepts both forms */}
           <View style={[s.card, SHADOW.card]}>
@@ -224,7 +216,7 @@ export default function LobbyScreen({ route, navigation }: Props) {
               <View style={s.qrWrap}>
                 <QRCode
                   value={deepLink}
-                  size={56}
+                  size={96}
                   ecl="L"
                   backgroundColor="#ffffff"
                   color={C.bg}
@@ -437,8 +429,8 @@ const s = StyleSheet.create({
     marginBottom: 20,
   },
   cardInner: {
-    flexDirection: 'row',
     alignItems: 'center',
+    gap: 16,
   },
   cardEyebrow: {
     textTransform: 'uppercase',
@@ -455,8 +447,8 @@ const s = StyleSheet.create({
     letterSpacing: 6,
   },
   qrWrap: {
-    width: 64,
-    height: 64,
+    width: 120,
+    height: 120,
     backgroundColor: '#ffffff',
     borderRadius: 12,
     alignItems: 'center',

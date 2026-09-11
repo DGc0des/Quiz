@@ -1,4 +1,9 @@
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { getCurrentUserId } from '../hooks/useAuthSession';
+import { readActiveGame, readPlayerName, savePlayerName, clearActiveGame, SavedGame } from '../utils/savedGame';
+import { loadResumableGame } from '../utils/resumeGame';
+import { gameDestination } from '../utils/gameFlow';
 import {
   View,
   Text,
@@ -24,6 +29,35 @@ export default function HomeScreen({ navigation }: Props) {
   const [playerName, setPlayerName] = useState('');
   const [focused, setFocused] = useState(false);
 
+  const [saved, setSaved] = useState<SavedGame | null>(null);
+  const [resuming, setResuming] = useState(false);
+  const [resumeError, setResumeError] = useState('');
+  const nameEdited = useRef(false);
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    readPlayerName().then(name => { if (active && !nameEdited.current) setPlayerName(name); });
+    readActiveGame(getCurrentUserId()).then(value => { if (active) setSaved(value); });
+    return () => { active = false; };
+  }, []));
+  const resume = async () => {
+    if (!saved || resuming) return;
+    setResuming(true);
+    setResumeError('');
+    try {
+      const game = await loadResumableGame(saved);
+      const destination = game ? gameDestination(game, saved.playerId) : 'Home';
+      if (!game || destination === 'Home') {
+        await clearActiveGame(saved.gameId);
+        setSaved(null);
+        setResumeError('Το παιχνίδι δεν είναι πλέον διαθέσιμο.');
+      } else {
+        navigation.navigate(destination, { gameId: game.id, playerId: saved.playerId });
+      }
+    } catch {
+      setResumeError('Δεν ήταν δυνατή η σύνδεση. Το παιχνίδι σου παραμένει αποθηκευμένο. Δοκίμασε ξανά.');
+    } finally { setResuming(false); }
+  };
+
   const trimmed = sanitizeName(playerName);
 
   return (
@@ -35,13 +69,20 @@ export default function HomeScreen({ navigation }: Props) {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <Logo size={120} />
+          {saved && (
+            <TouchableOpacity accessibilityRole="button" style={[styles.resumeCard, resuming && styles.disabled]} disabled={resuming} onPress={resume}>
+              <Text style={styles.ghostBtnText}>{resuming ? 'Σύνδεση…' : 'Συνέχεια παιχνιδιού →'}</Text>
+              <Text style={styles.resumeHint}>Κωδικός {saved.gameId}</Text>
+            </TouchableOpacity>
+          )}
+          {!!resumeError && <Text accessibilityLiveRegion="polite" style={styles.resumeError}>{resumeError}</Text>}
 
           <TextInput
             style={[styles.input, focused && styles.inputFocused]}
             placeholder="Εισάγετε το όνομά σας"
             placeholderTextColor={C.inkMute}
             value={playerName}
-            onChangeText={setPlayerName}
+            onChangeText={name => { nameEdited.current = true; setPlayerName(name); }}
             maxLength={NAME_MAX_LENGTH}
             autoCapitalize="words"
             returnKeyType="done"
@@ -53,7 +94,7 @@ export default function HomeScreen({ navigation }: Props) {
             style={[styles.primaryBtn, !trimmed && styles.disabled]}
             disabled={!trimmed}
             activeOpacity={0.8}
-            onPress={() => navigation.navigate('CreateGame', { playerName: trimmed })}
+            onPress={() => { void savePlayerName(trimmed); navigation.navigate('CreateGame', { playerName: trimmed }); }}
           >
             <View style={styles.primaryBtnInner}>
               <Text style={styles.primaryBtnText}>Δημιουργία Παιχνιδιού</Text>
@@ -64,7 +105,7 @@ export default function HomeScreen({ navigation }: Props) {
             style={[styles.ghostBtn, !trimmed && styles.disabled]}
             disabled={!trimmed}
             activeOpacity={0.8}
-            onPress={() => navigation.navigate('JoinGame', { playerName: trimmed })}
+            onPress={() => { void savePlayerName(trimmed); navigation.navigate('JoinGame', { playerName: trimmed }); }}
           >
             <Text style={styles.ghostBtnText}>Είσοδος σε Παιχνίδι</Text>
           </TouchableOpacity>
@@ -75,6 +116,9 @@ export default function HomeScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
+  resumeCard: { width: '100%', padding: 18, backgroundColor: C.surface, borderColor: C.primary, borderWidth: 1.5, borderRadius: 18, marginBottom: 20, gap: 6 },
+  resumeHint: { color: C.inkSoft, fontFamily: F.sans, fontSize: 13 },
+  resumeError: { color: C.inkSoft, textAlign: 'center', marginBottom: 16, fontFamily: F.sans },
   safe: {
     flex: 1,
     backgroundColor: C.bg,

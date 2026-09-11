@@ -9,7 +9,7 @@ Built with [Expo](https://expo.dev) (React Native) and [Supabase](https://supaba
 ## How to play
 
 1. **Create or join a game.**
-   - One player taps **Create** and gets a 6-character code (and a QR code to show the room).
+   - One player taps **Create** and goes straight to the lobby, with a 6-character code, QR code, and sharing controls.
    - Everyone else taps **Join** and either types the code or scans the QR.
 2. **Wait in the lobby.** Once at least 2 players have joined, the host sets the **target score** (10, 15, or 21 — default 15) and starts the game.
 3. **Take turns picking.** Each round, the active player chooses a **category** and a **difficulty** (which sets how many points the question is worth). There's a 60-second timer — if it runs out, a question is picked automatically.
@@ -86,3 +86,9 @@ At the end of a game, the host can start a rematch using the button fixed at the
 ### Expo Go on iPhone
 
 This project uses Expo SDK 57. Open it with SDK 57 Expo Go. Stop any old SDK 54 Metro server, run `npx expo start --go --clear`, and scan the new QR code with your iPhone on the same Wi-Fi network. Local iOS builds require Xcode 26.4 or newer; SDK 57 requires iOS 16.4 or newer.
+
+### Resume and reconnect
+
+The home screen remembers your name and offers **Συνέχεια παιχνιδιού** for the last game opened on this device. Resume checks current membership and routes to the current round (or follows a rematch). Temporary network errors keep the saved game available; a successful explicit exit clears it.
+
+Game screens show a reconnect banner when synchronization fails, retry automatically, and refresh when the app returns to the foreground. Server timers keep running during disconnections. Submitted answers and active power-ups are restored from server state; received 50/50 options are remembered on the same device.

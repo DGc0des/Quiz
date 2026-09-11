@@ -1,3 +1,4 @@
+import { readFiftyOptions, saveFiftyOptions } from '../utils/savedGame';
 import { useEffect, useRef, useState, useMemo } from 'react';
 import {
   View,
@@ -38,7 +39,12 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Question'>;
 const OPTION_LABELS = ['Α', 'Β', 'Γ', 'Δ'];
 const TIMER_SECONDS = 30;
 
-export default function QuestionScreen({ route, navigation }: Props) {
+export default function QuestionScreen(props: Props) {
+  const { game } = useGame(props.route.params.gameId);
+  return <QuestionRound key={`${props.route.params.gameId}:${game?.currentTurn?.turnNumber ?? 'loading'}`} {...props} />;
+}
+
+function QuestionRound({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
   const { game } = useGame(gameId);
   const insets = useSafeAreaInsets();
@@ -48,20 +54,43 @@ export default function QuestionScreen({ route, navigation }: Props) {
   const isNumeric = question?.type === 'numeric';
   const remaining = useTimer(TIMER_SECONDS, turn?.timerStartedAt ?? null);
 
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const [numericInput, setNumericInput] = useState('');
-  const [answered, setAnswered] = useState(false);
+  const ownAnswer = turn?.answers[playerId];
+  const ownHelps = turn?.activeHelps?.[playerId];
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(ownAnswer?.answerIndex ?? null);
+  const [numericInput, setNumericInput] = useState(ownAnswer?.answerValue != null ? String(ownAnswer.answerValue) : '');
+  const [answered, setAnswered] = useState(!!ownAnswer);
   const [visibleOptions, setVisibleOptions] = useState<number[] | null>(null);
   const [fiftyPending, setFiftyPending] = useState(false);
-  const [doubleActive, setDoubleActive] = useState(false);
+  const [doubleActive, setDoubleActive] = useState(!!ownHelps?.double);
   const [stealMode, setStealMode] = useState(false);
-  const [stealTargetId, setStealTargetId] = useState<string | null>(null);
+  const [stealTargetId, setStealTargetId] = useState<string | null>(ownAnswer?.stolenFrom ?? null);
   const [sabotageMode, setSabotageMode] = useState(false);
-  const [sabotageActivated, setSabotageActivated] = useState(false);
+  const [sabotageActivated, setSabotageActivated] = useState(!!ownHelps?.sabotage);
   const [shuffledIndices, setShuffledIndices] = useState<number[]>([0, 1, 2, 3]);
   const timerFired = useRef(false);
 
   useGamePresence(gameId, playerId, game ?? null);
+
+  useEffect(() => {
+    if (ownAnswer) {
+      setAnswered(true);
+      setSelectedIndex(ownAnswer.answerIndex ?? null);
+      if (ownAnswer.answerValue != null) setNumericInput(String(ownAnswer.answerValue));
+      setStealTargetId(ownAnswer.stolenFrom ?? null);
+    }
+    if (ownHelps?.double) setDoubleActive(true);
+    if (ownHelps?.sabotage) setSabotageActivated(true);
+  }, [ownAnswer, ownHelps]);
+
+  useEffect(() => {
+    let active = true;
+    if (ownHelps?.fifty && turn) {
+      readFiftyOptions(gameId, playerId, turn.turnNumber).then(options => {
+        if (active && options) setVisibleOptions(options);
+      });
+    }
+    return () => { active = false; };
+  }, [gameId, playerId, turn?.turnNumber, ownHelps?.fifty]);
 
   const player = game?.players[playerId];
   // Team mode: only the leader's answer scores; everyone else advises.
@@ -213,7 +242,9 @@ export default function QuestionScreen({ route, navigation }: Props) {
       const { ok, value } = await runGameWrite('Το 50/50', () => useFifty(gameId));
       if (ok && value?.ok) {
         const hidden = value.hidden;
-        setVisibleOptions([0, 1, 2, 3].filter((i) => !hidden.includes(i)));
+        const options = [0, 1, 2, 3].filter((i) => !hidden.includes(i));
+        setVisibleOptions(options);
+        if (turn) void saveFiftyOptions(gameId, playerId, turn.turnNumber, options);
       }
     } finally {
       setFiftyPending(false);

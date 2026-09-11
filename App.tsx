@@ -1,9 +1,9 @@
 import 'react-native-get-random-values';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef, StackActions } from '@react-navigation/native';
 import * as SplashScreen from 'expo-splash-screen';
 import {
   useFonts,
@@ -22,9 +22,32 @@ import AppNavigator, { linking } from './src/navigation/AppNavigator';
 import ErrorBoundary from './src/components/ErrorBoundary';
 import AuthGate from './src/components/AuthGate';
 
+import { GameConnectionBanner } from './src/components/GameConnectionBanner';
+import { saveActiveGame, clearActiveGame } from './src/utils/savedGame';
+import { gameDestination } from './src/utils/gameFlow';
+import { Game, RootStackParamList } from './src/types';
+const navigationRef = createNavigationContainerRef<RootStackParamList>();
 SplashScreen.preventAutoHideAsync();
 
 export default function App() {
+  const [activeGameId, setActiveGameId] = useState<string | null>(null);
+  const trackRoute = useCallback(() => {
+    const params = navigationRef.getCurrentRoute()?.params as { gameId?: string; playerId?: string } | undefined;
+    setActiveGameId(params?.gameId ?? null);
+    if (params?.gameId && params.playerId) void saveActiveGame({ gameId: params.gameId, playerId: params.playerId });
+  }, []);
+  const syncRoute = useCallback((game: Game) => {
+    const route = navigationRef.getCurrentRoute();
+    const params = route?.params as { gameId?: string; playerId?: string } | undefined;
+    if (params?.gameId !== game.id || !params.playerId) return;
+    const destination = gameDestination(game, params.playerId);
+    if (destination === 'Home') {
+      void clearActiveGame(game.id);
+      navigationRef.reset({ index: 0, routes: [{ name: 'Home' }] });
+    } else if (route?.name !== destination) {
+      navigationRef.dispatch(StackActions.replace(destination, params));
+    }
+  }, []);
   const [fontsLoaded] = useFonts({
     Fraunces_700Bold,
     Fraunces_800ExtraBold,
@@ -50,7 +73,11 @@ export default function App() {
       <SafeAreaProvider>
         <ErrorBoundary>
           <AuthGate>
-            <NavigationContainer linking={linking}>
+            {activeGameId && <GameConnectionBanner gameId={activeGameId} onSync={syncRoute} onHome={() => {
+              void clearActiveGame(activeGameId);
+              navigationRef.reset({ index: 0, routes: [{ name: 'Home' }] });
+            }} />}
+            <NavigationContainer ref={navigationRef} linking={linking} onReady={trackRoute} onStateChange={trackRoute}>
               <AppNavigator />
             </NavigationContainer>
           </AuthGate>

@@ -1,3 +1,4 @@
+import { savePlayerName } from '../utils/savedGame';
 import { useRef, useState } from 'react';
 import {
   View,
@@ -66,6 +67,7 @@ export default function JoinGameScreen({ route, navigation }: Props) {
         setLoading(false);
         return;
       }
+      void savePlayerName(trimmedName);
       navigation.replace('Lobby', { gameId: trimmed, playerId: getCurrentUserId() });
     } catch (e: unknown) {
       // Not always a connection problem: a missing `join_game` (client ahead of

@@ -30,3 +30,16 @@ export function finishedDestination(
   if (!game.winnerId) return 'Home';
   return game.winnerId === playerId ? 'Winner' : 'Loser';
 }
+
+/** Route from authoritative state, including games advanced while offline. */
+export function gameDestination(game: Game, playerId: string) {
+  if (!game.players[playerId]) return 'Home' as const;
+  switch (game.status) {
+    case 'lobby': return 'Lobby' as const;
+    case 'turn_reveal': return 'TurnReveal' as const;
+    case 'picking': return 'Turn' as const;
+    case 'question': return 'Question' as const;
+    case 'reviewing': return 'Result' as const;
+    case 'finished': return finishedDestination(game, playerId);
+  }
+}

@@ -1,3 +1,4 @@
+jest.mock('react-native', () => ({ AppState: {} }));
 // Tests for the optimistic-concurrency write helper (src/utils/updateGame.ts).
 //
 // Since Stage 2 (0004_validated_writes.sql) clients hold no UPDATE on `games`;

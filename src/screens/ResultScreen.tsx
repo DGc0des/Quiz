@@ -40,7 +40,12 @@ function formatNum(n: number): string {
   return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
 }
 
-export default function ResultScreen({ route, navigation }: Props) {
+export default function ResultScreen(props: Props) {
+  const { game } = useGame(props.route.params.gameId);
+  return <ResultRound key={`${props.route.params.gameId}:${game?.currentTurn?.turnNumber ?? 'loading'}`} {...props} />;
+}
+
+function ResultRound({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
   const { game } = useGame(gameId);
   const insets = useSafeAreaInsets();

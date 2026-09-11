@@ -29,7 +29,12 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Turn'>;
 /** Seconds the active player has to choose difficulty + category. */
 const PICK_SECONDS = 60;
 
-export default function TurnScreen({ route, navigation }: Props) {
+export default function TurnScreen(props: Props) {
+  const { game } = useGame(props.route.params.gameId);
+  return <TurnRound key={`${props.route.params.gameId}:${game?.currentTurn?.turnNumber ?? 'loading'}`} {...props} />;
+}
+
+function TurnRound({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
   const { game } = useGame(gameId);
   const teamGame = isTeamGame(game);
