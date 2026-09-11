@@ -15,7 +15,6 @@ import { pickQuestion, CATEGORIES } from '../data/questions';
 import { leaveGame } from '../utils/leaveGame';
 import { updateGame } from '../utils/updateGame';
 import { runGameWrite, reportWriteError, logWriteError } from '../utils/reportWriteError';
-import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
 import { finishedDestination } from '../utils/gameFlow';
 import { RootStackParamList, Points, Category } from '../types';
 import { C, F, SHADOW, CATEGORY_META } from '../theme';
@@ -36,15 +35,13 @@ export default function TurnScreen(props: Props) {
 
 function TurnRound({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
-  const { game } = useGame(gameId);
+  const { game, presence } = useGame(gameId);
   const teamGame = isTeamGame(game);
   const insets = useSafeAreaInsets();
   const [selectedPoints, setSelectedPoints] = useState<Points | null>(null);
 
   const isMyTurn = game?.currentTurn?.activePlayerId === playerId;
   const activeName = game?.currentTurn ? game.players[game.currentTurn.activePlayerId]?.name : '';
-
-  useGamePresence(gameId, playerId, game ?? null);
 
   // Pick-phase countdown. `timerStartedAt` is stamped when the turn enters
   // `picking` (and re-stamped for the question phase in handleSelectCategory),
@@ -140,9 +137,9 @@ function TurnRound({ route, navigation }: Props) {
           style: 'destructive',
           onPress: async () => {
             // Leaving must never trap the player: if the write fails we say so
-            // and go Home anyway — the presence janitor removes them server-side.
+            // and go Home anyway. Until a leave lands they stay in the roster,
+            // shown as away and skipped by the server.
             await runGameWrite('Η έξοδος', () => leaveGame(gameId, playerId, game));
-            leavePresence(gameId);
             navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
           },
         },
@@ -237,7 +234,7 @@ function TurnRound({ route, navigation }: Props) {
           {teamGame ? (
             <TeamScoreRow game={game} myTeamId={teamOf(game, playerId)?.id} />
           ) : (
-            <ScoreRow players={sortedPlayers} selfId={playerId} activePlayerId={activePlayerId} />
+            <ScoreRow players={sortedPlayers} selfId={playerId} activePlayerId={activePlayerId} awayIds={presence?.awayIds} />
           )}
         </View>
 

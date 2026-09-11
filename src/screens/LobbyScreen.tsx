@@ -17,7 +17,7 @@ import { SeriesWins } from '../components/SeriesWins';
 import { setGameMode, startTeamGame } from '../utils/gameRpc';
 import { canEnableTeams, MIN_TEAM_PLAYERS } from '../utils/teams';
 import { useGame } from '../hooks/useGame';
-import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
+import { isAway } from '../utils/presence';
 import { shuffle } from '../utils/shuffle';
 import { leaveGame } from '../utils/leaveGame';
 import { updateGame } from '../utils/updateGame';
@@ -33,7 +33,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Lobby'>;
 
 export default function LobbyScreen({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
-  const { game, loading, error } = useGame(gameId);
+  const { game, loading, error, presence } = useGame(gameId);
 
   const isHost = game?.players[playerId]?.isHost ?? false;
   const players = game ? Object.values(game.players).sort((a, b) => a.joinedAt - b.joinedAt) : [];
@@ -46,8 +46,6 @@ export default function LobbyScreen({ route, navigation }: Props) {
   // The server re-checks this in set_game_mode and again in start_team_game —
   // players join and leave while the host is deciding.
   const teamsAllowed = canEnableTeams(players.length);
-
-  useGamePresence(gameId, playerId, game ?? null);
 
   // Share / copy the invite — available to everyone in the lobby.
   const handleCopy = async () => {
@@ -81,9 +79,9 @@ export default function LobbyScreen({ route, navigation }: Props) {
           style: 'destructive',
           onPress: async () => {
             // Leaving must never trap the player: if the write fails we say so
-            // and go Home anyway — the presence janitor removes them server-side.
+            // and go Home anyway. Until a leave lands they stay in the roster,
+            // shown as away and skipped by the server.
             await runGameWrite('Η έξοδος', () => leaveGame(gameId, playerId, game));
-            leavePresence(gameId);
             navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
           },
         },
@@ -313,6 +311,10 @@ export default function LobbyScreen({ route, navigation }: Props) {
               virtualization and warns. */}
           {players.map((item: Player) => {
             const isSelf = item.id === playerId;
+            const away = isAway(presence, item.id);
+            const sub = [item.isHost ? '👑 Δημιουργός' : away ? null : 'Έτοιμος', away ? '💤 εκτός σύνδεσης' : null]
+              .filter(Boolean)
+              .join(' · ');
             return (
               <View key={item.id} style={[s.playerRow, SHADOW.card, isSelf && s.playerRowSelf]}>
                 <Avatar name={item.name} size={38} />
@@ -320,11 +322,9 @@ export default function LobbyScreen({ route, navigation }: Props) {
                   <Text style={s.playerName} numberOfLines={1}>
                     {item.name}{isSelf ? ' (εσύ)' : ''}
                   </Text>
-                  <Text style={s.playerSub}>
-                    {item.isHost ? '👑 Δημιουργός' : 'Έτοιμος'}
-                  </Text>
+                  <Text style={s.playerSub}>{sub}</Text>
                 </View>
-                {!item.isHost && <View style={s.greenDot} />}
+                {!item.isHost && !away && <View style={s.greenDot} />}
               </View>
             );
           })}

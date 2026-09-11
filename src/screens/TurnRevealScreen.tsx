@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated, TouchableOpacity, Alert, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useGame } from '../hooks/useGame';
-import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
+import { canActAsHost } from '../utils/presence';
 import { leaveGame } from '../utils/leaveGame';
 import { updateGame } from '../utils/updateGame';
 import { runGameWrite, logWriteError } from '../utils/reportWriteError';
@@ -20,15 +20,14 @@ type Props = NativeStackScreenProps<RootStackParamList, 'TurnReveal'>;
 
 export default function TurnRevealScreen({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
-  const { game } = useGame(gameId);
+  const { game, presence } = useGame(gameId);
   const teamGame = isTeamGame(game);
   const insets = useSafeAreaInsets();
-  const isHost = game?.players[playerId]?.isHost ?? false;
+  // The host drives the first turn, or the acting host while the host is away.
+  const canDrive = canActAsHost(game, presence, playerId);
+  const [revealDone, setRevealDone] = useState(false);
   const animatedValues = useRef<Animated.Value[]>([]);
   const didAnimate = useRef(false);
-  const advanceTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useGamePresence(gameId, playerId, game ?? null);
 
   useEffect(() => {
     if (!game || game.status !== 'turn_reveal' || didAnimate.current) return;
@@ -46,49 +45,52 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
         ])
       )
     );
-    animation.start(() => {
-      if (!isHost) return;
-      advanceTimeout.current = setTimeout(() => {
-        // `updateGame` primes the local cache, so the status-watching effect
-        // below navigates to Turn on its own (no reliance on the realtime echo,
-        // which may not reach the writer — fatal in solo play where the host
-        // drives every transition).
-        //
-        // Automatic (host-driven, on a timeout), so a failure is logged rather
-        // than alerted: an alert here would land behind the reveal animation
-        // with nothing the player could do about it. The `catch` still matters —
-        // without it a failing RPC is an unhandled rejection and the screen just
-        // sits there (PROJECT_STATUS.md §4.2 C3).
-        updateGame(
-          gameId,
-          (g) => {
-            if (g.status !== 'turn_reveal') return null;
-            const firstId = g.turnOrder[0];
-            return {
-              ...g,
-              status: 'picking',
-              currentTurn: {
-                turnNumber: 1,
-                activePlayerId: firstId,
-                selectedPoints: null,
-                selectedCategory: null,
-                questionId: null,
-                answers: {},
-                timerStartedAt: Date.now(),
-                status: 'picking',
-              },
-            };
-          },
-          { base: game },
-        ).catch((e: unknown) => logWriteError('Η έναρξη γύρου', e));
-      }, 1500);
-    });
+    animation.start(() => setRevealDone(true));
 
     return () => {
       animation.stop();
-      if (advanceTimeout.current) clearTimeout(advanceTimeout.current);
     };
   }, [game?.status]);
+
+  // Advance once the reveal has played. Keyed on `canDrive` rather than read inside
+  // the animation callback: a closure there would keep `false` forever on every
+  // other device if the host dropped after the animation started.
+  //
+  // `updateGame` primes the local cache, so the status-watching effect below
+  // navigates to Turn on its own (no reliance on the realtime echo, which may not
+  // reach the writer). Automatic, so a failure is logged rather than alerted — an
+  // alert would land behind the reveal with nothing the player could do; the
+  // `catch` still matters (PROJECT_STATUS.md §4.2 C3). Two drivers firing is safe:
+  // the mutator returns null once the game has left `turn_reveal`, and writes are
+  // version-guarded.
+  useEffect(() => {
+    if (!revealDone || !canDrive || game?.status !== 'turn_reveal') return;
+    const timeout = setTimeout(() => {
+      updateGame(
+        gameId,
+        (g) => {
+          if (g.status !== 'turn_reveal') return null;
+          const firstId = g.turnOrder[0];
+          return {
+            ...g,
+            status: 'picking',
+            currentTurn: {
+              turnNumber: 1,
+              activePlayerId: firstId,
+              selectedPoints: null,
+              selectedCategory: null,
+              questionId: null,
+              answers: {},
+              timerStartedAt: Date.now(),
+              status: 'picking',
+            },
+          };
+        },
+        { base: game },
+      ).catch((e: unknown) => logWriteError('Η έναρξη γύρου', e));
+    }, 1500);
+    return () => clearTimeout(timeout);
+  }, [revealDone, canDrive, game?.status]);
 
   useEffect(() => {
     if (!game) return;
@@ -110,9 +112,9 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
           style: 'destructive',
           onPress: async () => {
             // Leaving must never trap the player: if the write fails we say so
-            // and go Home anyway — the presence janitor removes them server-side.
+            // and go Home anyway. Until a leave lands they stay in the roster,
+            // shown as away and skipped by the server.
             await runGameWrite('Η έξοδος', () => leaveGame(gameId, playerId, game));
-            leavePresence(gameId);
             navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
           },
         },
@@ -134,7 +136,7 @@ export default function TurnRevealScreen({ route, navigation }: Props) {
         {teamGame ? (
           <TeamScoreRow game={game} myTeamId={teamOf(game, playerId)?.id} />
         ) : (
-          <ScoreRow players={players} selfId={playerId} />
+          <ScoreRow players={players} selfId={playerId} awayIds={presence?.awayIds} />
         )}
       </View>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={s.container}>

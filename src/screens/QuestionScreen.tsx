@@ -23,7 +23,7 @@ import { getQuestionById } from '../data/questions';
 import { leaveGame } from '../utils/leaveGame';
 import { submitAnswer, ensureRoundAdvanced, useFifty, usePowerUp } from '../utils/gameRpc';
 import { runGameWrite, reportWriteError, logWriteError } from '../utils/reportWriteError';
-import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
+import { isAway } from '../utils/presence';
 import { finishedDestination } from '../utils/gameFlow';
 import { RootStackParamList } from '../types';
 import { C, F, SHADOW, CATEGORY_META } from '../theme';
@@ -46,7 +46,7 @@ export default function QuestionScreen(props: Props) {
 
 function QuestionRound({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
-  const { game } = useGame(gameId);
+  const { game, presence } = useGame(gameId);
   const insets = useSafeAreaInsets();
 
   const turn = game?.currentTurn;
@@ -68,8 +68,6 @@ function QuestionRound({ route, navigation }: Props) {
   const [sabotageActivated, setSabotageActivated] = useState(!!ownHelps?.sabotage);
   const [shuffledIndices, setShuffledIndices] = useState<number[]>([0, 1, 2, 3]);
   const timerFired = useRef(false);
-
-  useGamePresence(gameId, playerId, game ?? null);
 
   useEffect(() => {
     if (ownAnswer) {
@@ -150,9 +148,9 @@ function QuestionRound({ route, navigation }: Props) {
           style: 'destructive',
           onPress: async () => {
             // Leaving must never trap the player: if the write fails we say so
-            // and go Home anyway — the presence janitor removes them server-side.
+            // and go Home anyway. Until a leave lands they stay in the roster,
+            // shown as away and skipped by the server.
             await runGameWrite('Η έξοδος', () => leaveGame(gameId, playerId, game));
-            leavePresence(gameId);
             navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
           },
         },
@@ -461,6 +459,7 @@ function QuestionRound({ route, navigation }: Props) {
           players={Object.values(game.players)}
           selfId={playerId}
           activePlayerId={turn?.activePlayerId}
+          awayIds={presence?.awayIds}
         />
         )}
       </View>
@@ -727,18 +726,22 @@ function QuestionRound({ route, navigation }: Props) {
         {stealMode ? (
           <View style={s.stealBox}>
             <Text style={s.stealTitle}>Επίλεξε παίκτη να κλέψεις:</Text>
-            {otherPlayers.map((p) => (
-              <TouchableOpacity
-                key={p.id}
-                style={s.stealRow}
-                onPress={() => handleStealTarget(p.id)}
-                activeOpacity={0.7}
-              >
-                <Avatar name={p.name} size={36} />
-                <Text style={s.stealPlayerName}>{p.name}</Text>
-                <Text style={s.stealArrow}>→</Text>
-              </TouchableOpacity>
-            ))}
+            {otherPlayers.map((p) => {
+              const away = isAway(presence, p.id);
+              return (
+                <TouchableOpacity
+                  key={p.id}
+                  style={[s.stealRow, away && s.stealRowAway]}
+                  onPress={() => handleStealTarget(p.id)}
+                  disabled={away}
+                  activeOpacity={0.7}
+                >
+                  <Avatar name={p.name} size={36} />
+                  <Text style={s.stealPlayerName}>{p.name}{away ? ' · εκτός σύνδεσης' : ''}</Text>
+                  <Text style={s.stealArrow}>{away ? '💤' : '→'}</Text>
+                </TouchableOpacity>
+              );
+            })}
             <TouchableOpacity style={s.stealCancelBtn} onPress={() => setStealMode(false)}>
               <Text style={s.stealCancelText}>← Ακύρωση</Text>
             </TouchableOpacity>
@@ -746,18 +749,22 @@ function QuestionRound({ route, navigation }: Props) {
         ) : sabotageMode ? (
           <View style={s.stealBox}>
             <Text style={s.stealTitle}>Επίλεξε παίκτη να σαμποτάρεις:</Text>
-            {otherPlayers.map((p) => (
-              <TouchableOpacity
-                key={p.id}
-                style={s.stealRow}
-                onPress={() => handleSabotageTarget(p.id)}
-                activeOpacity={0.7}
-              >
-                <Avatar name={p.name} size={36} />
-                <Text style={s.stealPlayerName}>{p.name}</Text>
-                <Text style={s.stealArrow}>💣</Text>
-              </TouchableOpacity>
-            ))}
+            {otherPlayers.map((p) => {
+              const away = isAway(presence, p.id);
+              return (
+                <TouchableOpacity
+                  key={p.id}
+                  style={[s.stealRow, away && s.stealRowAway]}
+                  onPress={() => handleSabotageTarget(p.id)}
+                  disabled={away}
+                  activeOpacity={0.7}
+                >
+                  <Avatar name={p.name} size={36} />
+                  <Text style={s.stealPlayerName}>{p.name}{away ? ' · εκτός σύνδεσης' : ''}</Text>
+                  <Text style={s.stealArrow}>{away ? '💤' : '💣'}</Text>
+                </TouchableOpacity>
+              );
+            })}
             <TouchableOpacity style={s.stealCancelBtn} onPress={() => setSabotageMode(false)}>
               <Text style={s.stealCancelText}>← Ακύρωση</Text>
             </TouchableOpacity>
@@ -1474,6 +1481,7 @@ const s = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 2,
   },
+  stealRowAway: { opacity: 0.4 },
   stealRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -15,7 +15,7 @@ import { getQuestionById } from '../data/questions';
 import { leaveGame } from '../utils/leaveGame';
 import { runGameWrite, reportWriteError, logWriteError } from '../utils/reportWriteError';
 import { closeReview } from '../utils/gameRpc';
-import { useGamePresence, leavePresence } from '../hooks/useGamePresence';
+import { canActAsHost, isAway } from '../utils/presence';
 import { finishedDestination } from '../utils/gameFlow';
 import { RootStackParamList } from '../types';
 import { C, F, SHADOW } from '../theme';
@@ -47,12 +47,11 @@ export default function ResultScreen(props: Props) {
 
 function ResultRound({ route, navigation }: Props) {
   const { gameId, playerId } = route.params;
-  const { game } = useGame(gameId);
+  const { game, presence } = useGame(gameId);
   const insets = useSafeAreaInsets();
-  const isHost = game?.players[playerId]?.isHost ?? false;
+  // The host, or the acting host while the host is away (same rule as close_review).
+  const canDrive = canActAsHost(game, presence, playerId);
   const advancedRef = useRef(false);
-
-  useGamePresence(gameId, playerId, game ?? null);
 
   // Review-phase countdown. `timerStartedAt` is re-stamped when the turn flips
   // to `reviewing` (in QuestionScreen), so it doubles as the review timer here.
@@ -86,9 +85,9 @@ function ResultRound({ route, navigation }: Props) {
           style: 'destructive',
           onPress: async () => {
             // Leaving must never trap the player: if the write fails we say so
-            // and go Home anyway — the presence janitor removes them server-side.
+            // and go Home anyway. Until a leave lands they stay in the roster,
+            // shown as away and skipped by the server.
             await runGameWrite('Η έξοδος', () => leaveGame(gameId, playerId, game));
-            leavePresence(gameId);
             navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
           },
         },
@@ -260,7 +259,11 @@ function ResultRound({ route, navigation }: Props) {
           const stolenFrom = rawAnswer?.stolenFrom;
           const stealTargetName = stolenFrom ? game.players[stolenFrom]?.name : undefined;
           const earned = earnedMap[player.id] ?? 0;
-          const noAnswer = rawAnswer === undefined;
+          // An away player, like a timeout, is recorded with an empty answer: show it as
+          // "did not answer", not as a wrong answer.
+          const noAnswer =
+            rawAnswer === undefined ||
+            (rawAnswer.answerIndex == null && rawAnswer.answerValue == null && !rawAnswer.stolenFrom);
 
           // In team mode the points went to the *side*, so no per-player total
           // moves and no "+N βαθμ." belongs on a player's line — appending
@@ -324,6 +327,7 @@ function ResultRound({ route, navigation }: Props) {
                 <Text style={s.playerName}>
                   {player.name}
                   {isSelf ? ' (εσύ)' : ''}
+                  {isAway(presence, player.id) ? '  💤' : ''}
                   {isRowLeader && rowTeam ? (
                     <Text style={[s.leaderTag, { color: TEAM_COLORS[rowTeam.id] }]}>
                       {'  ★ αρχηγός'}
@@ -343,7 +347,7 @@ function ResultRound({ route, navigation }: Props) {
           );
         })}
 
-        {isHost ? (
+        {canDrive ? (
           <TouchableOpacity style={s.primaryBtn} onPress={handleNext} activeOpacity={0.8}>
             <Text style={s.primaryBtnText}>Επόμενος Γύρος →</Text>
           </TouchableOpacity>

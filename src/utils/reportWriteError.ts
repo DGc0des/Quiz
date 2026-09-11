@@ -17,8 +17,8 @@ import { GameUpdateRejected } from './updateGame';
  *
  * Rule of thumb for which helper to use:
  *  - `runGameWrite` — a write the player asked for. Alerts on failure.
- *  - `logWriteError` — an automatic/background write (timer auto-advance, the
- *    presence janitor) where every client fires the same thing and another one
+ *  - `logWriteError` — an automatic/background write (timer auto-advance,
+ *    TurnScreen's auto-pick) where every client fires the same thing and another one
  *    will usually cover it. Logs in dev, never alerts, so N clients hitting the
  *    same failure don't stack N dialogs on every tick.
  */

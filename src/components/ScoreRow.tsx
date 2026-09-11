@@ -6,23 +6,26 @@ type Props = {
   players: Player[];
   selfId: string;
   activePlayerId?: string | null;
+  /** From `useGame().presence` — away players are dimmed, never hidden. */
+  awayIds?: string[];
 };
 
-export function ScoreRow({ players, selfId, activePlayerId }: Props) {
+export function ScoreRow({ players, selfId, activePlayerId, awayIds = [] }: Props) {
   const sorted = [...players].sort((a, b) => b.score - a.score);
   return (
     <ScrollView horizontal style={s.viewport} contentContainerStyle={s.row} showsHorizontalScrollIndicator>
       {sorted.map((p) => {
         const isSelf = p.id === selfId;
         const isActive = activePlayerId != null && p.id === activePlayerId;
+        const away = awayIds.includes(p.id);
         return (
           <View
             key={p.id}
-            style={[s.box, isSelf && s.boxSelf, isActive && s.boxActive]}
+            style={[s.box, isSelf && s.boxSelf, isActive && s.boxActive, away && s.boxAway]}
           >
             <Text style={[s.num, isActive && s.numActive]}>{p.score}</Text>
             <Text style={[s.label, isActive && s.labelActive]} numberOfLines={1}>
-              {p.name}
+              {away ? `💤 ${p.name}` : p.name}
             </Text>
           </View>
         );
@@ -54,6 +57,7 @@ const s = StyleSheet.create({
   },
   boxSelf: { borderColor: C.primary },
   boxActive: { backgroundColor: C.primary, borderColor: C.primary },
+  boxAway: { opacity: 0.45 },
   num: { fontFamily: F.display, fontSize: 15, color: C.primary },
   numActive: { color: '#FFFFFF' },
   label: { fontFamily: F.sansSemiBold, fontSize: 9, color: C.inkMute, maxWidth: 56 },

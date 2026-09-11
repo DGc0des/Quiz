@@ -13,7 +13,6 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { createRematch } from '../utils/gameRpc';
 import { runGameWrite } from '../utils/reportWriteError';
 import { useGame } from '../hooks/useGame';
-import { leavePresence } from '../hooks/useGamePresence';
 import { RootStackParamList } from '../types';
 import { C, F, SHADOW } from '../theme';
 import { Blobs } from '../components/Blobs';
@@ -133,7 +132,6 @@ export default function WinnerScreen({ route, navigation }: Props) {
   useEffect(() => {
     if (!game?.rematchGameId || navigatedRef.current) return;
     navigatedRef.current = true;
-    leavePresence(gameId); // tear down the finished game's presence channel
     navigation.replace('Lobby', { gameId: game.rematchGameId, playerId });
   }, [game?.rematchGameId]);
 

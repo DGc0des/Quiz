@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../config/supabase';
 
 // Module-level mirror of the session's user id, following the same shared-cache
-// pattern as `useGame` / `useGamePresence`. Screens need the id synchronously
+// pattern as `useGame`. Screens need the id synchronously
 // during render (it seeds `playerId`), and `AuthGate` guarantees a session
 // exists before any of them mount.
 let currentUserId: string | null = null;
@@ -30,7 +30,7 @@ export function getCurrentUserId(): string {
  * genuinely first launch (or after the stored session is cleared).
  *
  * `App.tsx` holds the navigator until this resolves, which also guarantees that
- * every realtime channel (`useGame`, `useGamePresence`) is opened with an
+ * every realtime channel (`useGame`) is opened with an
  * authenticated token rather than the bare anon key.
  */
 export function useAuthSession() {

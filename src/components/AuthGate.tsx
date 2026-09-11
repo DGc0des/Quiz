@@ -8,8 +8,8 @@ import { C, F } from '../theme';
  *
  * This is a hard gate, not a nicety: `playerId` is the session's `auth.uid()`,
  * and the RLS policies authorize every read and write against it. Rendering the
- * navigator early would also let `useGame` / `useGamePresence` open realtime
- * channels carrying the pre-auth token.
+ * navigator early would also let `useGame` open realtime channels carrying the
+ * pre-auth token.
  */
 export default function AuthGate({ children }: { children: ReactNode }) {
   const { userId, loading, error, retry } = useAuthSession();
