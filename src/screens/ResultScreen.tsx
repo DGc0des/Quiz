@@ -17,6 +17,7 @@ import { runGameWrite, reportWriteError, logWriteError } from '../utils/reportWr
 import { closeReview } from '../utils/gameRpc';
 import { canActAsHost, isAway } from '../utils/presence';
 import { finishedDestination } from '../utils/gameFlow';
+import { formatGreekNumber } from '../utils/numericAnswer';
 import { RootStackParamList } from '../types';
 import { C, F, SHADOW } from '../theme';
 import { Blobs } from '../components/Blobs';
@@ -35,9 +36,9 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Result'>;
 /** Seconds the results screen is shown before auto-advancing to the next turn. */
 const REVIEW_SECONDS = 90;
 
-/** Compact number for display: drops trailing zeros, caps long decimals. */
+/** Compact number for display, in Greek notation (8.848 = eight thousand), two decimals at most. */
 function formatNum(n: number): string {
-  return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
+  return formatGreekNumber(n, 2);
 }
 
 export default function ResultScreen(props: Props) {

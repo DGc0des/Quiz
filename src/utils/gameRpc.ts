@@ -5,7 +5,7 @@ import { Game, GameMode } from '../types';
 /** Dedicated server-authoritative actions. Success primes the caller-specific
  * cache; all refusals throw so the caller can roll back optimistic UI state. */
 
-/** Refusals these RPCs can return. Mirrors the `reason` values in 0006 + 0007. */
+/** Refusals these RPCs can return. Mirrors the `reason` values in 0006, 0007 and review_fixes. */
 export type GameRpcReason =
   | 'not_found'
   | 'not_member'
@@ -23,17 +23,32 @@ export type GameRpcReason =
   | 'not_in_lobby'
   | 'uneven_teams'
   | 'not_team_mode'
-  | 'leader_only';
+  | 'leader_only'
+  // 20260919100950_review_fixes (create_game)
+  | 'name_not_allowed'
+  | 'too_many_games';
 
 type RpcOk<T> = { ok: true } & T;
 type RpcFail = { ok: false; reason: GameRpcReason };
+
+/**
+ * The server answered, and said no. Carries the machine-readable `reason` so a
+ * screen can explain a specific refusal (e.g. a blocked name) instead of
+ * showing a generic failure. Transport and permission errors are thrown as-is.
+ */
+export class GameRpcRefused extends Error {
+  constructor(public reason: GameRpcReason) {
+    super(`Η ενέργεια απορρίφθηκε: ${reason}`);
+    this.name = 'GameRpcRefused';
+  }
+}
 
 async function call<T>(fn: string, args: Record<string, unknown>): Promise<RpcOk<T> | RpcFail> {
   const { data, error } = await supabase.rpc(fn, args);
   if (error) throw error;
 
   const result = data as RpcOk<T & { game?: Game }> | RpcFail;
-  if (!result.ok) throw new Error(`Η ενέργεια απορρίφθηκε: ${(result as RpcFail).reason}`);
+  if (!result.ok) throw new GameRpcRefused((result as RpcFail).reason);
   const success = result as { ok: boolean; game?: Game };
   if (success.ok && success.game) {
     primeGame(success.game.id, success.game);

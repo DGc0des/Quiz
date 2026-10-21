@@ -10,6 +10,8 @@ const snapshots = new Map<string, Snapshot>();
 const listeners = new Map<string, Set<() => void>>();
 const channels = new Map<string, ReturnType<typeof supabase.channel>>();
 const requests = new Map<string, Promise<void>>();
+// Games that were asked to refresh while a request was already in flight.
+const dirty = new Set<string>();
 const monitors = new Map<string, () => void>();
 const cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const empty: Snapshot = { game: null, loading: true, error: null, connection: 'connecting', presence: null };
@@ -24,34 +26,54 @@ export function primeGame(id: string, game: Game) {
   publish(id, { game, loading: false, error: null });
 }
 
-/** Only concurrent requests are cached. Every reconnect fetches fresh state. */
+/**
+ * `tick_game` refuses with 42501 when the game no longer exists or the caller is
+ * no longer in it (quiz_private.require_member). That is a final answer, not a
+ * connection problem, so the screens show "game not available" instead of a
+ * reconnect banner that can never clear (review finding R3).
+ */
+function isGone(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === '42501';
+}
+
+/**
+ * One request per game at a time. A refresh asked for while one is in flight
+ * (a burst of Realtime events, the 3s poll landing mid-request) is not dropped:
+ * it runs once more when the current one settles, so the last event is always
+ * followed by a fetch that saw it.
+ */
 export function refreshGame(id: string): Promise<void> {
   const pending = requests.get(id);
-  if (pending) return pending;
+  if (pending) {
+    dirty.add(id);
+    return pending;
+  }
   const request = (async () => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
-      // get_game also distinguishes expired games/lost membership from a network failure.
-      const { data, error } = await supabase.rpc('get_game', { p_game_id: id }).abortSignal(controller.signal);
-      if (error) throw error;
-      if (!data) {
-        publish(id, { game: null, loading: false, error: 'not-found', connection: 'connected' });
-        return;
-      }
-      primeGame(id, data as Game);
+      // One call: the caller's view of the game, this device's heartbeat, the
+      // deadline/away transitions and the presence block (review finding A17 —
+      // this used to be get_game followed by tick_game on every refresh).
       const tick = await supabase.rpc('tick_game', { p_game_id: id }).abortSignal(controller.signal);
       if (tick.error) throw tick.error;
       if (!tick.data?.ok || !tick.data.game) throw new Error('refresh-failed');
       primeGame(id, tick.data.game as Game);
       // Away status is derived from heartbeats, so only a tick can refresh it.
       publish(id, { connection: 'connected', error: null, presence: parsePresence(tick.data.presence) });
-    } catch {
+    } catch (e: unknown) {
+      if (isGone(e)) {
+        publish(id, { game: null, loading: false, error: 'not-found', connection: 'connected' });
+        return;
+      }
       publish(id, { loading: false, error: 'connection-error', connection: 'reconnecting' });
     } finally { clearTimeout(timeout); }
   })();
   requests.set(id, request);
-  void request.finally(() => { if (requests.get(id) === request) requests.delete(id); });
+  void request.finally(() => {
+    if (requests.get(id) === request) requests.delete(id);
+    if (dirty.delete(id)) void refreshGame(id);
+  });
   return request;
 }
 function ensureChannel(id: string) {

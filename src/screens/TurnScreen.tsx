@@ -172,6 +172,11 @@ function TurnRound({ route, navigation }: Props) {
 
     // `updateGame` primes the local cache, so the status-watching effect above
     // navigates to Question on its own — no echo wait, no stale-state bounce.
+    //
+    // The server draws the actual question from this category and these stakes
+    // (review finding FR-S3) and ignores `questionId`. The local pick below only
+    // settles the stakes fallback (1 → 2 → 3, same order as the server) and keeps
+    // the request well-formed.
     await updateGame(
       gameId,
       (g) => {

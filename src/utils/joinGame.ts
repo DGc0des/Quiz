@@ -4,9 +4,11 @@ import { Game } from '../types';
 
 /**
  * Reasons the `join_game` RPC can refuse a join. Mirrors the values returned by
- * `supabase/migrations/0002_membership_scoped_rls.sql` — keep the two in step.
+ * `public.join_game` (0002, extended by 20260919100950_review_fixes) — keep the two in step.
+ * `name_not_allowed` comes from the server-side name filter; the client never
+ * re-implements that list.
  */
-export type JoinFailureReason = 'not_found' | 'started' | 'full' | 'invalid_name';
+export type JoinFailureReason = 'not_found' | 'started' | 'full' | 'invalid_name' | 'name_not_allowed';
 
 export type JoinResult =
   | { ok: true; game: Game }
@@ -18,6 +20,7 @@ export const JOIN_ERROR_MESSAGES: Record<JoinFailureReason, string> = {
   started: 'Το παιχνίδι έχει ήδη ξεκινήσει.',
   full: 'Το παιχνίδι είναι γεμάτο.',
   invalid_name: 'Εισάγετε το όνομά σας.',
+  name_not_allowed: 'Αυτό το όνομα δεν επιτρέπεται. Διάλεξε άλλο.',
 };
 
 /**

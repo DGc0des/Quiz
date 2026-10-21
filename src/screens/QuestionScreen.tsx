@@ -25,6 +25,7 @@ import { submitAnswer, ensureRoundAdvanced, useFifty, usePowerUp } from '../util
 import { runGameWrite, reportWriteError, logWriteError } from '../utils/reportWriteError';
 import { decidingLeaderId, isAway } from '../utils/presence';
 import { finishedDestination } from '../utils/gameFlow';
+import { parseNumericAnswer, formatGreekNumber } from '../utils/numericAnswer';
 import { RootStackParamList } from '../types';
 import { C, F, SHADOW, CATEGORY_META } from '../theme';
 import { Blobs } from '../components/Blobs';
@@ -113,6 +114,9 @@ function QuestionRound({ route, navigation }: Props) {
   const canDouble = !(player?.usedHelps?.double ?? false) && !doubleActive;
   const canSabotage = !(player?.usedHelps?.sabotage ?? false) && !sabotageActivated && !sabotageMode;
   const otherPlayers = Object.values(game?.players ?? {}).filter((p) => p.id !== playerId);
+  // Practice games have one player: Steal and Sabotage have nobody to target, so
+  // they are hidden rather than shown as buttons that do nothing.
+  const hasTargets = otherPlayers.length > 0;
   const isSabotaged = Object.values(turn?.activeHelps ?? {}).some((h) => h.sabotage === playerId);
 
   useEffect(() => {
@@ -204,10 +208,16 @@ function QuestionRound({ route, navigation }: Props) {
     }
   };
 
+  // What the typed text reads as, in Greek notation; null while it is not a number.
+  const numericPreview = (() => {
+    const value = parseNumericAnswer(numericInput);
+    return value === null ? null : formatGreekNumber(value);
+  })();
+
   const handleNumericSubmit = async () => {
     if (answered || !isNumeric) return;
-    const val = parseFloat(numericInput.replace(',', '.'));
-    if (Number.isNaN(val)) return;
+    const val = parseNumericAnswer(numericInput);
+    if (val === null) return;
     setAnswered(true);
     if (!(await submitNumeric(val))) setAnswered(false);
   };
@@ -433,7 +443,22 @@ function QuestionRound({ route, navigation }: Props) {
     seq.start();
   }, [isSabotaged]);
 
-  if (!question) return null;
+  if (!question) {
+    // The server drew a question this build does not ship (bank ahead of the
+    // app). Say so instead of rendering nothing; the round still times out.
+    if (!turn?.questionId) return null;
+    return (
+      <View style={[s.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <Blobs />
+        <View style={s.missingWrap}>
+          <Text style={s.missingTitle}>Η ερώτηση δεν είναι διαθέσιμη</Text>
+          <Text style={s.missingText}>
+            Η έκδοση της εφαρμογής σου δεν έχει αυτή την ερώτηση. Ενημέρωσε την εφαρμογή. Ο γύρος θα συνεχίσει μόλις λήξει ο χρόνος.
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   const timerProgress = turn?.timerStartedAt ? remaining / TIMER_SECONDS : 1;
   const timerColor = remaining > 10 ? C.green : remaining > 5 ? C.amber : C.primary;
@@ -638,7 +663,7 @@ function QuestionRound({ route, navigation }: Props) {
                 <Text style={[s.helpBtnLabel, s.helpBtnLabelFifty, !canFifty && s.helpBtnLabelUsed]}>50/50</Text>
               </TouchableOpacity>
             )}
-            {!isNumeric && (!teamGame || iAmLeader) && (
+            {!isNumeric && hasTargets && (!teamGame || iAmLeader) && (
               <TouchableOpacity
                 style={[s.helpBtn, s.helpBtnSteal, !canSteal && s.helpBtnUsed]}
                 onPress={handleStealPress}
@@ -658,7 +683,7 @@ function QuestionRound({ route, navigation }: Props) {
               <Text style={s.helpBtnEmoji}>⚡</Text>
               <Text style={[s.helpBtnLabel, s.helpBtnLabelDouble, !canDouble && s.helpBtnLabelUsed]}>×2</Text>
             </TouchableOpacity>
-            {!isNumeric && (
+            {!isNumeric && hasTargets && (
               <TouchableOpacity
                 style={[s.helpBtn, s.helpBtnSabotage, !canSabotage && s.helpBtnUsed]}
                 onPress={handleSabotagePress}
@@ -790,10 +815,20 @@ function QuestionRound({ route, navigation }: Props) {
                   />
                   {question.unit ? <Text style={s.numericUnit}>{question.unit}</Text> : null}
                 </View>
+                {numericInput.trim() !== '' && (
+                  <Text
+                    accessibilityLiveRegion="polite"
+                    style={numericPreview === null ? s.numericInvalid : s.numericPreview}
+                  >
+                    {numericPreview === null
+                      ? 'Γράψε μόνο έναν αριθμό, π.χ. 1821 ή 42,5'
+                      : `Θα σταλεί: ${numericPreview}${question.unit ? ` ${question.unit}` : ''}`}
+                  </Text>
+                )}
                 <TouchableOpacity
-                  style={[s.numericSubmit, numericInput.trim() === '' && s.numericSubmitDisabled]}
+                  style={[s.numericSubmit, numericPreview === null && s.numericSubmitDisabled]}
                   onPress={handleNumericSubmit}
-                  disabled={numericInput.trim() === ''}
+                  disabled={numericPreview === null}
                   activeOpacity={0.85}
                 >
                   <Text style={s.numericSubmitText}>Υποβολή</Text>
@@ -801,7 +836,7 @@ function QuestionRound({ route, navigation }: Props) {
               </>
             ) : stealTargetId ? null : (
               <Text style={s.numericAnswered}>
-                Η απάντησή σου: {numericInput.trim() === '' ? '—' : numericInput}
+                Η απάντησή σου: {numericPreview ?? '—'}
                 {question.unit ? ` ${question.unit}` : ''}
               </Text>
             )}
@@ -1235,6 +1270,21 @@ const s = StyleSheet.create({
     fontSize: 16,
     color: C.primaryInk,
   },
+  numericPreview: {
+    fontFamily: F.sansSemiBold,
+    fontSize: 14,
+    color: C.inkSoft,
+    textAlign: 'center',
+  },
+  numericInvalid: {
+    fontFamily: F.sansSemiBold,
+    fontSize: 14,
+    color: C.primary,
+    textAlign: 'center',
+  },
+  missingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 12 },
+  missingTitle: { fontFamily: F.bold, fontSize: 22, color: C.ink, textAlign: 'center' },
+  missingText: { fontFamily: F.sansMedium, fontSize: 15, lineHeight: 22, color: C.inkSoft, textAlign: 'center' },
   numericAnswered: {
     fontFamily: F.sansBold,
     fontSize: 16,

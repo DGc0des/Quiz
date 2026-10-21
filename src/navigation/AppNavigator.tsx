@@ -1,5 +1,6 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { LinkingOptions } from '@react-navigation/native';
+import { LinkingOptions, getStateFromPath } from '@react-navigation/native';
+import { sanitizeLinkState } from '../utils/deepLink';
 import { RootStackParamList } from '../types';
 import { C } from '../theme';
 
@@ -23,6 +24,8 @@ export const linking: LinkingOptions<RootStackParamList> = {
       JoinGame: 'join/:gameCode',
     },
   },
+  // Links are untrusted: only a validated game code survives (see deepLink.ts).
+  getStateFromPath: (path, options) => sanitizeLinkState(getStateFromPath(path, options)),
 };
 
 export default function AppNavigator() {

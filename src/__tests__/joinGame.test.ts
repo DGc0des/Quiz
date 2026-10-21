@@ -66,8 +66,8 @@ describe('joinGame', () => {
   });
 
   it('has a Greek message for every refusal reason the RPC can return', () => {
-    // Mirrors the `reason` values in 0002_membership_scoped_rls.sql.
-    const reasons: JoinFailureReason[] = ['not_found', 'started', 'full', 'invalid_name'];
+    // Mirrors the `reason` values of public.join_game (0002 + review_fixes).
+    const reasons: JoinFailureReason[] = ['not_found', 'started', 'full', 'invalid_name', 'name_not_allowed'];
     for (const reason of reasons) {
       expect(JOIN_ERROR_MESSAGES[reason]).toBeTruthy();
       // Greek, not a leaked English fallback.

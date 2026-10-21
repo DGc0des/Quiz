@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../config/supabase';
+import { ensureAnonymousUserId } from '../utils/anonymousSession';
 
 // Module-level mirror of the session's user id, following the same shared-cache
 // pattern as `useGame`. Screens need the id synchronously
@@ -48,27 +49,30 @@ export function useAuthSession() {
   useEffect(() => {
     let active = true;
 
-    // Keep the id in step with token refreshes and any future sign-out.
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!active || !session?.user) return;
-      currentUserId = session.user.id;
-      setUserId(session.user.id);
+    // Keep the id in step with token refreshes and sign-outs.
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!active) return;
+      if (session?.user) {
+        currentUserId = session.user.id;
+        setUserId(session.user.id);
+        return;
+      }
+      // supabase-js signs out when a token refresh is rejected — the anonymous
+      // user was purged or revoked while the app was open (review finding R2).
+      // Hold the app and start a fresh identity instead of leaving every RPC to
+      // fail with a stale id until the next launch.
+      if (event === 'SIGNED_OUT') {
+        currentUserId = null;
+        setUserId(null);
+        setLoading(true);
+        setError(null);
+        setAttempt((n) => n + 1);
+      }
     });
 
     (async () => {
       try {
-        const { data, error: sessionError } = await supabase.auth.getSession();
-        if (sessionError) throw sessionError;
-
-        let id = data.session?.user?.id ?? null;
-        if (!id) {
-          const { data: signedIn, error: signInError } =
-            await supabase.auth.signInAnonymously();
-          if (signInError) throw signInError;
-          id = signedIn.user?.id ?? null;
-        }
-        if (!id) throw new Error('No user id after anonymous sign-in');
-
+        const id = await ensureAnonymousUserId(supabase.auth);
         if (!active) return;
         currentUserId = id;
         setUserId(id);

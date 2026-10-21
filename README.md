@@ -11,7 +11,7 @@ Built with [Expo](https://expo.dev) (React Native) and [Supabase](https://supaba
 1. **Create or join a game.**
    - One player taps **Create** and goes straight to the lobby, with a 6-character code, QR code, and sharing controls.
    - Everyone else taps **Join** and either types the code or scans the QR.
-2. **Wait in the lobby.** Once at least 2 players have joined, the host sets the **target score** (10, 15, or 21 — default 15) and starts the game.
+2. **Wait in the lobby.** Once at least 2 players have joined, the host sets the **target score** (10, 15, or 21 — default 15) and starts the game. Nobody around yet? A host who is alone can tap **🎯 Εξάσκηση μόνος σου** to play a practice game.
 3. **Take turns picking.** Each round, the active player chooses a **category** and a **difficulty** (which sets how many points the question is worth). There's a 60-second timer — if it runs out, a question is picked automatically.
 4. **Everyone answers.** All players answer the same question independently, against the clock. Most questions are multiple choice — but some are **"closest wins"**: you type a number (a year, a height, a count) and whoever's guess is nearest takes the points. 🎯
 5. **See the results**, then the next player picks. First to reach the target score **wins**. 🏆
@@ -50,7 +50,8 @@ npm install
 # 2. Configure your backend
 cp .env.example .env
 #    then fill in EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY
-#    (Supabase Dashboard → Project Settings → API)
+#    (Supabase Dashboard → Project Settings → API Keys; use the publishable
+#    sb_publishable_… key, never a secret one)
 
 # 3. Start the app
 npm start
@@ -62,9 +63,11 @@ Scan the QR code from the terminal with the **Expo Go** app, or press `i` / `a` 
 
 The backend stores authoritative matches in `quiz_private.games` and publishes a redacted, member-only `public.games` projection for Realtime. Clients sign in anonymously and use validated RPCs for all mutations. The public anon key can ship in the app; private state, answer keys, grants, RLS and RPC authorization protect the game.
 
-Apply the original migrations followed by `20260905113817_authoritative_game_security.sql` , `20260905120247_secure_departures.sql`, `20260911135819_away_players_core.sql` and `20260911140910_away_players_team_standin.sql` from `supabase/migrations`. These are already deployed to the configured Quiz project. Release the matching updated client: older builds cannot directly create games or rematches or use the former power-up writes.
+Apply the files in `supabase/migrations` in name order: `0001`–`0007`, then the timestamped ones (`20260905113817_authoritative_game_security.sql` through `20260919100950_review_fixes.sql`). `0005_question_answers.sql` holds the answer key, so it is not in git: generate it first with `npm run questions:build`. All of them are already deployed to the configured Quiz project. Release the matching updated client: older builds cannot directly create games or rematches or use the former power-up writes.
 
-After changing questions, run `npm run questions:build` and apply the generated answer-key seed plus `supabase/question-catalog.sql` before distributing the app. Run `supabase/tests/security_regression.sql` and `supabase/tests/away_players.sql` as database owner for rollback-only integration checks, and `npx tsc --noEmit` plus `npm test -- --runInBand` for app checks.
+After changing questions, run `npm run questions:build` and apply the generated answer-key seed plus `supabase/question-catalog.sql` before distributing the app. The server draws each round's question from that catalog, so only add questions to it once every app version in use ships them. Run `supabase/tests/security_regression.sql`, `supabase/tests/away_players.sql` and `supabase/tests/review_fixes.sql` as database owner for rollback-only integration checks, and `npx tsc --noEmit` plus `npx jest --roots=src` for app checks.
+
+EAS builds run `tools/check-build-env.js` before installing dependencies and fail if the two `EXPO_PUBLIC_SUPABASE_*` values are not registered for that build profile (`eas env:create`); EAS never uploads `.env`.
 
 Explicit exits transfer host ownership safely. A lost network connection leaves the player in the roster; it does not authorize another client to remove them, but after 20 seconds of silence they are treated as away and skipped. Server timers continue to expire unanswered questions.
 
@@ -94,3 +97,7 @@ The home screen remembers your name and offers **Συνέχεια παιχνιδ
 Game screens show a reconnect banner when synchronization fails, retry automatically, and refresh when the app returns to the foreground. Server timers keep running during disconnections. Submitted answers and active power-ups are restored from server state; received 50/50 options are remembered on the same device.
 
 Players who drop out are shown as away (💤) and skipped until they come back: their rounds, picks and in-game host duties move on to the players still here. In team mode, a teammate decides for a leader who dropped before answering.
+
+### Names and privacy
+
+Display names are capped at 20 characters and checked on the server against a short list of offensive words. Games are deleted 30 days after they are created, and the anonymous identity after 30 days without opening the app. The draft privacy policy is in `docs/privacy-policy.md`.

@@ -248,7 +248,8 @@ export interface Game {
 export type RootStackParamList = {
   Home: undefined;
   CreateGame: { playerName: string };
-  JoinGame: { playerName: string; gameCode?: string };
+  // Opened from Home with a name, or from a deep link with at most a code.
+  JoinGame: { playerName?: string; gameCode?: string } | undefined;
   Lobby: { gameId: string; playerId: string };
   TurnReveal: { gameId: string; playerId: string };
   Turn: { gameId: string; playerId: string };

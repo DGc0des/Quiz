@@ -171,12 +171,15 @@ export default function LobbyScreen({ route, navigation }: Props) {
   // In team mode the lobby must also be even and at least 2v2, or the split
   // would be uneven — start_team_game refuses it anyway.
   const canStart = mode === 'teams' ? teamsAllowed : players.length >= 2;
+  // A host alone in a solo lobby can play a practice game. This is also how a
+  // single-device App Store reviewer experiences the game (PROJECT_STATUS §2.5).
+  const canPractice = isHost && mode === 'solo' && players.length === 1;
 
   const hintText = isHost
     ? mode === 'teams' && !teamsAllowed
       ? `Οι ομάδες χρειάζονται ζυγό αριθμό παικτών (τουλάχιστον ${MIN_TEAM_PLAYERS})...`
       : players.length < 2
-        ? 'Περίμενε τουλάχιστον έναν ακόμα παίκτη...'
+        ? 'Περίμενε φίλους να μπουν ή παίξε μόνος για εξάσκηση.'
         : 'Έτοιμοι! Πάτα Έναρξη για να ξεκινήσετε.'
     : 'Αναμονή ξεκινήματος από τον δημιουργό...';
 
@@ -350,10 +353,16 @@ export default function LobbyScreen({ route, navigation }: Props) {
                 </TouchableOpacity>
                 <View style={s.primaryBtnShadow} />
               </View>
-              {/* DEV ONLY — delete before release */}
-              <TouchableOpacity style={s.devBtn} onPress={handleStart} activeOpacity={0.75}>
-                <Text style={s.devBtnText}>🛠 Solo Test (DEV)</Text>
-              </TouchableOpacity>
+              {canPractice && (
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  style={s.practiceBtn}
+                  onPress={handleStart}
+                  activeOpacity={0.75}
+                >
+                  <Text style={s.practiceBtnText}>🎯  Εξάσκηση μόνος σου</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </View>
@@ -636,17 +645,17 @@ const s = StyleSheet.create({
   },
   disabled: { opacity: 0.4 },
 
-  devBtn: {
-    borderWidth: 1.5,
-    borderColor: '#f59e0b',
+  practiceBtn: {
+    borderWidth: 2,
+    borderColor: C.primary,
     borderRadius: 999,
-    paddingVertical: 12,
+    paddingVertical: 14,
     alignItems: 'center',
-    backgroundColor: 'rgba(245,158,11,0.08)',
+    backgroundColor: 'transparent',
   },
-  devBtnText: {
+  practiceBtnText: {
     fontFamily: F.sansBold,
-    fontSize: 14,
-    color: '#f59e0b',
+    fontSize: 15,
+    color: C.primary,
   },
 });

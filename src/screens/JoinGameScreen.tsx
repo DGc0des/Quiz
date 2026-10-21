@@ -1,5 +1,5 @@
-import { savePlayerName } from '../utils/savedGame';
-import { useRef, useState } from 'react';
+import { readPlayerName, savePlayerName } from '../utils/savedGame';
+import { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,8 @@ import {
   Platform,
   ActivityIndicator,
   Pressable,
+  Alert,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -30,10 +32,24 @@ type Props = NativeStackScreenProps<RootStackParamList, 'JoinGame'>;
 const CODE_LENGTH = 6;
 
 export default function JoinGameScreen({ route, navigation }: Props) {
-  const { playerName, gameCode: initialCode } = route.params;
+  const playerName = route.params?.playerName;
+  const initialCode = route.params?.gameCode;
   const [code, setCode] = useState(initialCode ?? '');
   const [name, setName] = useState(playerName ?? '');
-  const needsName = !playerName; // opened via deep link → no name was entered yet
+  // Opened from a link: no name was entered yet. Links can never carry one —
+  // `sanitizeLinkState` strips everything but the code (review finding FR-S2).
+  const needsName = !playerName;
+  const nameEdited = useRef(false);
+
+  // Offer the name this device used last time, so a link is one tap from joining.
+  useEffect(() => {
+    if (!needsName) return;
+    let active = true;
+    readPlayerName().then((saved) => {
+      if (active && saved && !nameEdited.current) setName(saved);
+    });
+    return () => { active = false; };
+  }, [needsName]);
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -81,7 +97,23 @@ export default function JoinGameScreen({ route, navigation }: Props) {
   const handleScan = async () => {
     if (!permission?.granted) {
       const result = await requestPermission();
-      if (!result.granted) return;
+      if (!result.granted) {
+        // Never a silent no-op: say why nothing opened and how to fix it.
+        // Once denied for good, iOS will not ask again, so offer Settings.
+        Alert.alert(
+          'Χρειάζεται πρόσβαση στην κάμερα',
+          result.canAskAgain
+            ? 'Επίτρεψε την πρόσβαση για να σαρώσεις το QR, ή πληκτρολόγησε τον κωδικό.'
+            : 'Η πρόσβαση στην κάμερα είναι απενεργοποιημένη. Άνοιξε τις Ρυθμίσεις για να την επιτρέψεις, ή πληκτρολόγησε τον κωδικό.',
+          result.canAskAgain
+            ? [{ text: 'Εντάξει' }]
+            : [
+                { text: 'Άκυρο', style: 'cancel' },
+                { text: 'Ρυθμίσεις', onPress: () => { void Linking.openSettings(); } },
+              ],
+        );
+        return;
+      }
     }
     setScanning(true);
   };
@@ -139,7 +171,7 @@ export default function JoinGameScreen({ route, navigation }: Props) {
               placeholder="Το όνομά σας"
               placeholderTextColor={C.inkMute}
               value={name}
-              onChangeText={setName}
+              onChangeText={(t) => { nameEdited.current = true; setName(t); }}
               maxLength={NAME_MAX_LENGTH}
               autoCapitalize="words"
               returnKeyType="done"

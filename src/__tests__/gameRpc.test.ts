@@ -23,6 +23,7 @@ import {
   setGameMode,
   startTeamGame,
   createGame, createRematch, usePowerUp, removeGamePlayer,
+  GameRpcRefused,
 } from '../utils/gameRpc';
 
 const GAME = { id: 'ABCDEF', players: {}, version: 3 } as any;
@@ -226,6 +227,18 @@ describe('dedicated security actions', () => {
     expect(rpc).toHaveBeenLastCalledWith('use_power_up', { p_game_id: 'ABCDEF', p_help: 'double', p_target: null });
     await usePowerUp('ABCDEF', 'sabotage', 'opponent');
     expect(rpc).toHaveBeenLastCalledWith('use_power_up', { p_game_id: 'ABCDEF', p_help: 'sabotage', p_target: 'opponent' });
+  });
+  it('a refusal carries its reason, so a screen can explain it', async () => {
+    rpc.mockResolvedValue({ data: { ok: false, reason: 'name_not_allowed' }, error: null });
+    const error = await createGame('ABCDEF', 'x').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GameRpcRefused);
+    expect((error as GameRpcRefused).reason).toBe('name_not_allowed');
+    expect(primeGame).not.toHaveBeenCalled();
+  });
+  it('a transport error is not dressed up as a refusal', async () => {
+    rpc.mockResolvedValue({ data: null, error: { message: 'network down' } });
+    const error = await createGame('ABCDEF', 'x').catch((e: unknown) => e);
+    expect(error).not.toBeInstanceOf(GameRpcRefused);
   });
   it('a denied action throws so optimistic controls can roll back', async () => {
     rpc.mockResolvedValue({ data: { ok: false, reason: 'help_already_used' }, error: null });

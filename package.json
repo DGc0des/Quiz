@@ -8,7 +8,9 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "test": "jest",
-    "questions:build": "node tools/run-ts.js tools/build-questions.ts && node tools/run-ts.js tools/build-question-catalog.ts"
+    "questions:build": "node tools/run-ts.js tools/build-questions.ts && node tools/run-ts.js tools/build-question-catalog.ts",
+    "check:build-env": "node tools/check-build-env.js",
+    "eas-build-pre-install": "node tools/check-build-env.js"
   },
   "jest": {
     "preset": "ts-jest",
@@ -47,14 +49,11 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-svg": "15.15.4",
-    "react-native-worklets": "0.10.1",
-    "uuid": "^14.0.0"
+    "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
-    "@testing-library/react-native": "^13.3.3",
     "@types/jest": "29.5.14",
     "@types/react": "~19.2.4",
-    "@types/uuid": "^10.0.0",
     "babel-preset-expo": "~57.0.0",
     "jest": "~29.7.0",
     "ts-jest": "^29.4.9",

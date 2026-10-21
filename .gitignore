@@ -53,7 +53,13 @@ texnes_new_questions.md
 /ios
 /android
 
-/supabase/migrations
+# Migrations are tracked (review finding FR-S6), except the answer-key seed:
+# it is generated from tools/questions.source.ts by `npm run questions:build`
+# and holds every correct answer.
+/supabase/migrations/0005_question_answers.sql
 
 # Supabase CLI local cache
 /supabase/.temp/
+
+*.sql
+/brag-output
